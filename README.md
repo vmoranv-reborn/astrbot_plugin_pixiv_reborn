@@ -1,6 +1,6 @@
 # AstrBot Pixiv 搜索插件
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/vmoranv/astrbot_plugin_pixiv_search)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/vmoranv-reborn/astrbot_plugin_pixiv_search)
 [![文档](https://img.shields.io/badge/AstrBot-%E6%96%87%E6%A1%A3-blue)](https://astrbot.app)
 [![aiohttp](https://img.shields.io/pypi/v/aiohttp.svg)](https://pypi.org/project/aiohttp/)
 
@@ -166,13 +166,13 @@
 
 - [AstrBot 官方文档](https://astrbot.app/)
 - [插件开发指南](https://astrbot.app/develop/plugin.html)
-- [问题反馈](https://github.com/vmoranv/astrbot_plugin_pixiv_search/issues)
+- [问题反馈](https://github.com/vmoranv-reborn/astrbot_plugin_pixiv_search/issues)
 
 ## ⭐ 项目统计
 
 <div align="center">
 
-[![Star History Chart](https://api.star-history.com/svg?repos=vmoranv/astrbot_plugin_pixiv_search&type=Date)](https://star-history.com/#vmoranv/astrbot_plugin_pixiv_search&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=vmoranv-reborn/astrbot_plugin_pixiv_search&type=Date)](https://star-history.com/#vmoranv-reborn/astrbot_plugin_pixiv_search&Date)
 
 ![Analytics](https://repobeats.axiom.co/api/embed/9e6727cd94536119069eebccfe45b505ac499470.svg "Repobeats analytics image")
 

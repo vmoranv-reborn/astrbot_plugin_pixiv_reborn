@@ -3,4 +3,4 @@ name: Pixiv 图片搜索
 author: vmoranv
 version: 1.4.3
 description: 通过标签在 Pixiv 上搜索插画。用法 /pixiv tag1,tag2,... 可在配置中设置认证信息、返回数量和 R18 过滤模式。
-repo: https://github.com/vmoranv/astrbot_plugin_pixiv_search
+repo: https://github.com/vmoranv-reborn/astrbot_plugin_pixiv_search

@@ -121,7 +121,7 @@ class PixivSearchPlugin(Star):
             "author": "vmoranv",
             "description": "Pixiv 图片搜索",
             "version": "1.4.3",
-            "homepage": "https://github.com/vmoranv/astrbot_plugin_pixiv_search",
+            "homepage": "https://github.com/vmoranv-reborn/astrbot_plugin_pixiv_search",
         }
 
     async def _authenticate(self) -> bool:
