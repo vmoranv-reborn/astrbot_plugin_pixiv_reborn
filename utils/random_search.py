@@ -5,7 +5,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from astrbot.api import logger
 from astrbot.core.message.message_event_result import MessageChain
 
-from .database import get_all_random_search_groups, get_random_tags, filter_sent_illusts, add_sent_illust, cleanup_old_sent_illusts, get_schedule_time, set_schedule_time, remove_schedule_time, get_all_schedule_times
+from .database import get_all_random_search_groups, get_random_tags, filter_sent_illusts, add_sent_illust, cleanup_old_sent_illusts, get_schedule_time, set_schedule_time, remove_schedule_time, get_all_schedule_times, get_all_random_ranking_groups, get_random_rankings
 from .tag import build_detail_message, FilterConfig, validate_and_process_tags, process_and_send_illusts
 from .pixiv_utils import send_pixiv_image, send_forward_message
 
@@ -77,7 +77,9 @@ class RandomSearchService:
                 logger.info("RandomSearchService 队列处理器已启动")
 
             # 获取所有配置了标签的群组
-            groups = get_all_random_search_groups()
+            tag_groups = get_all_random_search_groups()
+            ranking_groups = get_all_random_ranking_groups()
+            groups = list(set(tag_groups + ranking_groups))
             now = datetime.now()
             
             pending_groups = []
@@ -188,17 +190,33 @@ class RandomSearchService:
             logger.error(f"清理过期记录任务出错: {e}")
 
     async def execute_search_for_group(self, chat_id: str):
-        """为特定群组执行随机标签搜索"""
+        """为特定群组执行随机搜索（标签或排行榜）"""
         tags = get_random_tags(chat_id)
-        if not tags:
+        rankings = get_random_rankings(chat_id)
+        
+        if not tags and not rankings:
             return
 
-        # 随机选择一个标签
-        selected_tag_entry = random.choice(tags)
+        # 随机选择执行标签搜索或排行榜搜索
+        all_options = []
+        for tag in tags:
+            all_options.append(('tag', tag))
+        for ranking in rankings:
+            all_options.append(('ranking', ranking))
+        
+        selected = random.choice(all_options)
+        
+        if selected[0] == 'tag':
+            await self._execute_tag_search(chat_id, selected[1])
+        else:
+            await self._execute_ranking_search(chat_id, selected[1])
+
+    async def _execute_tag_search(self, chat_id: str, selected_tag_entry):
+        """执行标签搜索"""
         raw_tag = selected_tag_entry.tag
         session_id = selected_tag_entry.session_id
 
-        logger.info(f"正在为群组 {chat_id} 执行随机搜索，标签: {raw_tag}")
+        logger.info(f"正在为群组 {chat_id} 执行随机标签搜索，标签: {raw_tag}")
         
         # 如果需要则认证
         if not await self.plugin._authenticate():
@@ -382,7 +400,115 @@ class RandomSearchService:
                 logger.info(f"群组 {chat_id}: 已记录 {len(sent_illust_ids)} 个作品的发送记录")
 
         except Exception as e:
-            logger.error(f"为群组 {chat_id} 执行随机搜索时出错: {e}")
+            logger.error(f"为群组 {chat_id} 执行随机标签搜索时出错: {e}")
+
+    async def _execute_ranking_search(self, chat_id: str, ranking_config):
+        """执行排行榜搜索"""
+        mode = ranking_config.mode
+        date = ranking_config.date
+        session_id = ranking_config.session_id
+
+        logger.info(f"正在为群组 {chat_id} 执行随机排行榜搜索，模式: {mode}, 日期: {date}")
+
+        if not await self.plugin._authenticate():
+            logger.error(f"群组 {chat_id} 的随机排行榜搜索失败: 认证失败。")
+            return
+
+        try:
+            ranking_result = await asyncio.to_thread(
+                self.plugin.client.illust_ranking,
+                mode=mode,
+                date=date
+            )
+            initial_illusts = ranking_result.illusts if ranking_result.illusts else []
+
+            if not initial_illusts:
+                logger.info(f"排行榜 {mode} 的随机搜索未返回结果。")
+                return
+
+            # 过滤已发送的作品
+            initial_illusts = filter_sent_illusts(initial_illusts, chat_id)
+            
+            if not initial_illusts:
+                logger.info(f"排行榜 {mode} 的随机搜索过滤后无可用作品。")
+                return
+
+            config = FilterConfig(
+                r18_mode=self.plugin.pixiv_config.r18_mode,
+                ai_filter_mode=self.plugin.pixiv_config.ai_filter_mode,
+                display_tag_str=f"随机排行榜:{mode}",
+                return_count=self.plugin.pixiv_config.return_count,
+                logger=logger,
+                show_filter_result=self.plugin.pixiv_config.show_filter_result,
+                excluded_tags=[],
+                forward_threshold=self.plugin.pixiv_config.forward_threshold,
+                show_details=self.plugin.pixiv_config.show_details
+            )
+
+            class MockEvent:
+                def __init__(self):
+                    self.bot = None
+                    
+                def chain_result(self, chain):
+                    message_chain = MessageChain()
+                    message_chain.chain = chain
+                    return message_chain
+                
+                def plain_result(self, text):
+                    message_chain = MessageChain()
+                    message_chain.message(text)
+                    return message_chain
+
+                def get_platform_name(self):
+                    return "unknown"
+                
+                def get_group_id(self):
+                    return None
+
+            mock_event = MockEvent()
+            sent_illust_ids = set()
+
+            async for message_content in process_and_send_illusts(
+                initial_illusts,
+                config,
+                self.plugin.client,
+                mock_event,
+                build_detail_message,
+                send_pixiv_image,
+                send_forward_message,
+                is_novel=False
+            ):
+                if message_content:
+                    try:
+                        if hasattr(message_content, 'chain'):
+                            chain = message_content.chain
+                            if chain and len(chain) > 0 and hasattr(chain[0], 'nodes'):
+                                for node in chain[0].nodes:
+                                    if hasattr(node, 'content') and node.content:
+                                        for content_item in node.content:
+                                            if hasattr(content_item, 'plain') and "作品ID:" in content_item.plain:
+                                                lines = content_item.plain.split('\n')
+                                                for line in lines:
+                                                    if line.startswith("链接: https://www.pixiv.net/artworks/"):
+                                                        illust_id = int(line.split('/')[-1])
+                                                        sent_illust_ids.add(illust_id)
+                            await self.plugin.context.send_message(session_id, message_content)
+                        elif isinstance(message_content, MessageChain):
+                            await self.plugin.context.send_message(session_id, message_content)
+                        else:
+                            chain = MessageChain().message(str(message_content))
+                            await self.plugin.context.send_message(session_id, chain)
+                        logger.info(f"排行榜消息已发送至 {session_id}")
+                    except Exception as e:
+                        logger.error(f"向 {session_id} 发送排行榜消息失败: {e}")
+
+            for illust_id in sent_illust_ids:
+                add_sent_illust(illust_id, chat_id)
+            if sent_illust_ids:
+                logger.info(f"群组 {chat_id}: 已记录 {len(sent_illust_ids)} 个排行榜作品的发送记录")
+
+        except Exception as e:
+            logger.error(f"为群组 {chat_id} 执行随机排行榜搜索时出错: {e}")
 
     def suspend_group_search(self, chat_id: str):
         """暂停指定群组的随机搜索"""

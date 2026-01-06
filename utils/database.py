@@ -46,6 +46,17 @@ class SentIllust(BaseModel):
     class Meta:
         primary_key = pw.CompositeKey('illust_id', 'chat_id')
 
+class RandomRankingConfig(BaseModel):
+    """随机排行榜配置模型"""
+    chat_id = pw.CharField()  # 群号
+    session_id = pw.TextField()  # 用于发送消息
+    mode = pw.CharField()  # 排行榜模式
+    date = pw.CharField(null=True)  # 可选的日期参数
+    is_suspended = pw.BooleanField(default=False)  # 是否暂停
+    
+    class Meta:
+        primary_key = pw.CompositeKey('chat_id', 'mode')
+
 class RandomSearchSchedule(BaseModel):
     """随机搜索调度时间模型"""
     chat_id = pw.CharField()  # 群聊ID
@@ -89,6 +100,10 @@ def initialize_database():
         if not RandomSearchSchedule.table_exists():
             db.create_tables([RandomSearchSchedule])
             logger.info("数据库初始化成功，数据表 random_search_schedule 已创建。")
+
+        if not RandomRankingConfig.table_exists():
+            db.create_tables([RandomRankingConfig])
+            logger.info("数据库初始化成功，数据表 random_ranking_config 已创建。")
 
         # 兼容旧版，检查并添加 chat_id 列
         if Subscription.table_exists():
@@ -420,3 +435,72 @@ def get_all_schedule_times() -> dict:
     except Exception as e:
         logger.error(f"获取所有调度时间失败: {e}")
         return {}
+
+# 随机排行榜相关函数
+def add_random_ranking(chat_id: str, session_id: str, mode: str, date: str = None) -> (bool, str):
+    """添加随机排行榜配置"""
+    try:
+        with db.atomic():
+            RandomRankingConfig.create(
+                chat_id=chat_id,
+                session_id=session_id,
+                mode=mode,
+                date=date
+            )
+        return True, f"成功添加随机排行榜: {mode}" + (f" ({date})" if date else "")
+    except pw.IntegrityError:
+        return False, f"该排行榜模式已存在: {mode}"
+    except Exception as e:
+        logger.error(f"添加随机排行榜失败: {e}")
+        return False, f"添加失败: {e}"
+
+def remove_random_ranking(chat_id: str, index: int) -> (bool, str):
+    """删除随机排行榜配置 (按索引)"""
+    try:
+        configs = list(RandomRankingConfig.select().where(RandomRankingConfig.chat_id == chat_id))
+        if 0 <= index < len(configs):
+            config = configs[index]
+            mode = config.mode
+            config.delete_instance()
+            return True, f"成功删除排行榜: {mode}"
+        else:
+            return False, "无效的序号。"
+    except Exception as e:
+        logger.error(f"删除随机排行榜失败: {e}")
+        return False, f"删除失败: {e}"
+
+def get_random_rankings(chat_id: str) -> list:
+    """获取指定群聊的随机排行榜配置列表（只返回未暂停的）"""
+    try:
+        return list(RandomRankingConfig.select().where(
+            (RandomRankingConfig.chat_id == chat_id) &
+            (RandomRankingConfig.is_suspended == False)
+        ))
+    except Exception as e:
+        logger.error(f"获取随机排行榜配置失败: {e}")
+        return []
+
+def get_all_random_ranking_groups() -> list:
+    """获取所有启用了随机排行榜的群聊ID"""
+    try:
+        all_groups_query = RandomRankingConfig.select(RandomRankingConfig.chat_id).distinct()
+        all_groups = [row.chat_id for row in all_groups_query]
+        
+        active_groups = []
+        for chat_id in all_groups:
+            configs = list(RandomRankingConfig.select().where(RandomRankingConfig.chat_id == chat_id))
+            if configs and any(not c.is_suspended for c in configs):
+                active_groups.append(chat_id)
+        
+        return active_groups
+    except Exception as e:
+        logger.error(f"获取随机排行榜群聊列表失败: {e}")
+        return []
+
+def list_random_rankings(chat_id: str) -> list:
+    """列出指定群聊的所有随机排行榜配置"""
+    try:
+        return list(RandomRankingConfig.select().where(RandomRankingConfig.chat_id == chat_id))
+    except Exception as e:
+        logger.error(f"列出随机排行榜配置失败: {e}")
+        return []

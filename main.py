@@ -25,7 +25,10 @@ from .utils.database import (
     get_random_tags,
     suspend_random_search,
     resume_random_search,
-    get_random_search_status
+    get_random_search_status,
+    add_random_ranking,
+    remove_random_ranking,
+    list_random_rankings
 )
 from .utils.subscription import SubscriptionService
 from .utils.random_search import RandomSearchService
@@ -975,6 +978,78 @@ class PixivSearchPlugin(Star):
             yield event.plain_result("已强制将当前群聊加入执行队列，请稍等...")
         else:
             yield event.plain_result("强制执行失败，群组可能正在执行中。")
+
+    @command("pixiv_random_ranking_add")
+    async def pixiv_random_ranking_add(self, event: AstrMessageEvent, args: str = ""):
+        """添加随机排行榜配置"""
+        args_list = args.strip().split() if args.strip() else []
+
+        if not args_list or args_list[0].lower() == "help":
+            yield event.plain_result(
+                "用法: /pixiv_random_ranking_add <模式> [日期]\n"
+                "模式: day, week, month, day_male, day_female, week_original, week_rookie, day_manga, day_r18 等\n"
+                "日期: 可选，格式 YYYY-MM-DD"
+            )
+            return
+
+        mode = args_list[0]
+        date = args_list[1] if len(args_list) > 1 else None
+
+        valid_modes = [
+            "day", "week", "month", "day_male", "day_female",
+            "week_original", "week_rookie", "day_manga",
+            "day_r18", "day_male_r18", "day_female_r18", "week_r18", "week_r18g",
+        ]
+
+        if mode not in valid_modes:
+            yield event.plain_result(f"无效的排行榜模式: {mode}\n可用模式: {', '.join(valid_modes)}")
+            return
+
+        if date:
+            try:
+                year, month, day = date.split("-")
+                if len(year) != 4 or len(month) != 2 or len(day) != 2:
+                    raise ValueError()
+            except Exception:
+                yield event.plain_result(f"无效的日期格式: {date}\n日期应为 YYYY-MM-DD 格式")
+                return
+
+        chat_id = event.get_group_id() or event.get_sender_id()
+        session_id = event.unified_msg_origin
+
+        success, message = add_random_ranking(chat_id, session_id, mode, date)
+        yield event.plain_result(message)
+
+    @command("pixiv_random_ranking_del")
+    async def pixiv_random_ranking_del(self, event: AstrMessageEvent, index: str = ""):
+        """删除随机排行榜配置"""
+        if not index.isdigit():
+            yield event.plain_result("请输入要删除的序号 (数字)。可通过 /pixiv_random_ranking_list 查看。")
+            return
+
+        idx = int(index) - 1
+        chat_id = event.get_group_id() or event.get_sender_id()
+
+        success, message = remove_random_ranking(chat_id, idx)
+        yield event.plain_result(message)
+
+    @command("pixiv_random_ranking_list")
+    async def pixiv_random_ranking_list(self, event: AstrMessageEvent, args: str = ""):
+        """列出当前群聊的随机排行榜配置"""
+        chat_id = event.get_group_id() or event.get_sender_id()
+        configs = list_random_rankings(chat_id)
+
+        if not configs:
+            yield event.plain_result("当前没有任何随机排行榜配置。")
+            return
+
+        msg = "当前随机排行榜配置列表：\n"
+        for i, config in enumerate(configs):
+            status = "（暂停）" if config.is_suspended else ""
+            date_info = f" ({config.date})" if config.date else ""
+            msg += f"{i+1}. {config.mode}{date_info}{status}\n"
+        
+        yield event.plain_result(msg)
 
     @command("pixiv_novel_series")
     async def pixiv_novel_series(self, event: AstrMessageEvent, series_id: str = ""):
