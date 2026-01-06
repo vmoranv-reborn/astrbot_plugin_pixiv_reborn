@@ -123,5 +123,13 @@
       "default": 120,
       "min": 1,
       "max": 1440
+  },
+  "random_sent_illust_retention_days": {
+      "description": "随机搜索已发送作品保留天数,以避免重复发送",
+      "type": "int",
+      "hint": "已发送作品在数据库中保留的天数。单位：天。",
+      "default": 7,
+      "min": 1,
+      "max": 365
   }
 }

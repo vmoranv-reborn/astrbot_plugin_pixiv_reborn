@@ -39,6 +39,7 @@ class RandomSearchService:
                 hour=2,  # 每天凌晨2点执行
                 minute=0
             )
+            
             self.scheduler.start()
             logger.info("Pixiv 随机搜索服务已启动。")
             
@@ -179,7 +180,11 @@ class RandomSearchService:
         """定期清理过期记录的任务"""
         try:
             logger.info("开始清理过期的已发送作品记录...")
-            cleanup_old_sent_illusts(days=1)
+            # 获取配置
+            days = self.plugin.pixiv_config.random_sent_illust_retention_days
+
+            # 使用 to_thread 防止数据库操作阻塞异步循环
+            await asyncio.to_thread(cleanup_old_sent_illusts, days=days)
             logger.info("清理过期记录任务完成。")
         except Exception as e:
             logger.error(f"清理过期记录任务出错: {e}")

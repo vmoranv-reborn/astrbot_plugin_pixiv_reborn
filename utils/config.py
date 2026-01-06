@@ -91,6 +91,8 @@ class PixivConfig:
         self.subscription_check_interval_minutes = self.config.get("subscription_check_interval_minutes", 30)
         self.random_search_min_interval = self.config.get("random_search_min_interval", 60)
         self.random_search_max_interval = self.config.get("random_search_max_interval", 120)
+        self.random_sent_illust_retention_days = self.config.get("random_sent_illust_retention_days", 7)
+        
     
     def get_auth_error_message(self) -> str:
         """获取认证错误消息"""
@@ -150,6 +152,8 @@ class PixivConfigManager:
             "random_search_min_interval": {"type": "int", "min": 1, "max": 1440},
             "random_search_max_interval": {"type": "int", "min": 1, "max": 1440},
             "proxy": {"type": "string", "hidden": True},
+            "random_sent_illust_retention_days": {"type": "int", "min": 1, "max": 365}, 
+
         }
     
     def get_help_text(self) -> str:
@@ -167,7 +171,7 @@ class PixivConfigManager:
             "return_count", "r18_mode", "ai_filter_mode", "show_filter_result",
             "show_details", "deep_search_depth", "forward_threshold",
             "image_quality", "subscription_enabled", "random_search_min_interval",
-            "random_search_max_interval"
+            "random_search_max_interval", "random_sent_illust_retention_days"
         ]
         
         current = {}
