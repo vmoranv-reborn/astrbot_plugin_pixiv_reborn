@@ -7,8 +7,9 @@ from ..utils.tag import (
     FilterConfig,
     validate_and_process_tags,
     process_and_send_illusts,
+    filter_illusts_with_reason
 )
-from ..utils.pixiv_utils import filter_items, send_pixiv_image, send_forward_message
+from ..utils.pixiv_utils import send_pixiv_image, send_forward_message
 
 from ..utils.help import get_help_message
 
@@ -473,9 +474,10 @@ class IllustHandler:
                 return_count=self.pixiv_config.return_count,
                 logger=logger,
                 show_filter_result=self.pixiv_config.show_filter_result,
+                show_details=self.pixiv_config.show_details,
                 excluded_tags=[],
             )
-            filtered_illusts, filter_msgs = filter_items([illust], config)
+            filtered_illusts, filter_msgs = filter_illusts_with_reason([illust], config)
             if self.pixiv_config.show_filter_result:
                 for msg in filter_msgs:
                     yield event.plain_result(msg)
