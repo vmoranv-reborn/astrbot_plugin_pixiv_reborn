@@ -115,7 +115,7 @@
       "default": "i.pixiv.re"
   },
   "use_image_proxy": {
-      "type": "boolean",
+      "type": "bool",
       "title": "启用图片反代",
       "description": "无代理时自动使用图片反代服务器下载图片",
       "default": true
