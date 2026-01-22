@@ -441,3 +441,51 @@ def sample_illusts(illusts, count, shuffle=False):
             return random.sample(illusts, count_to_send)
     else:
         return []
+
+
+async def process_and_send_illusts_sorted(
+    sorted_illusts,
+    config: FilterConfig,
+    client,
+    event,
+    build_detail_message_func,
+    send_pixiv_image_func,
+    send_forward_message_func,
+    is_novel=False
+):
+    """
+    处理已排序的作品列表并发送
+    """
+    filtered_illusts, filter_msgs = filter_illusts_with_reason(sorted_illusts, config)
+
+    if config.show_filter_result:
+        for msg in filter_msgs:
+            yield event.plain_result(msg)
+
+    if not filtered_illusts:
+        if config.show_filter_result and not filter_msgs:
+            yield event.plain_result("筛选后没有符合条件的作品可发送。")
+        elif not config.show_filter_result:
+            yield event.plain_result("没有找到符合条件的作品。")
+        return
+
+    count_to_send = min(len(filtered_illusts), config.return_count)
+    illusts_to_send = filtered_illusts[:count_to_send]
+
+    if not illusts_to_send:
+        return
+
+    if config.forward_threshold:
+        async for result in send_forward_message_func(
+            client, event, illusts_to_send,
+            lambda illust: build_detail_message_func(illust, is_novel=is_novel),
+        ):
+            yield result
+    else:
+        for illust in illusts_to_send:
+            detail_message = build_detail_message_func(illust, is_novel=is_novel)
+            async for result in send_pixiv_image_func(
+                client, event, illust, detail_message, show_details=config.show_details
+            ):
+                yield result
+

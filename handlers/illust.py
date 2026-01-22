@@ -7,7 +7,7 @@ from ..utils.tag import (
     FilterConfig,
     validate_and_process_tags,
     process_and_send_illusts,
-    filter_illusts_with_reason
+    filter_illusts_with_reason, process_and_send_illusts_sorted
 )
 from ..utils.pixiv_utils import send_pixiv_image, send_forward_message
 
@@ -1209,3 +1209,169 @@ class IllustHandler:
 
             logger.error(traceback.format_exc())
             yield event.plain_result(f"获取特辑详情时发生错误: {str(e)}")
+
+    async def pixiv_hot(
+            self,
+            event: AstrMessageEvent,
+            tags: str = "",
+            duration: str = "week"
+    ):
+        """
+        按热度（收藏数）搜索特定标签的作品
+        用法: /pixiv_hot <标签> [时间范围] [页数]
+        时间范围: day(一天内), week(一周内,默认), month(一月内), all(全部)
+        """
+        cleaned_tags = tags.strip()
+        args_list = cleaned_tags.split() if cleaned_tags else []
+
+        # 帮助信息
+        if not args_list or args_list[0].lower() == "help":
+            help_text = (
+                "🔥 **热度搜索** - 按收藏数排序搜索作品\n\n"
+                "**用法**: `/pixiv_hot <标签> [时间范围] [页数]`\n\n"
+                "**时间范围**: day/week(默认)/month/all\n\n"
+                "**示例**:\n"
+                "- `/pixiv_hot 可莉` - 搜索一周内可莉的热门图\n"
+                "- `/pixiv_hot クレー(原神) month` - 一个月内的热门图\n"
+                "- `/pixiv_hot 甘雨 week 10` - 一周内，抓取10页\n"
+                "- `/pixiv_hot 可莉,-R18` - 排除R18内容\n\n"
+                "💡 本功能通过抓取多页后按收藏数排序，无需会员"
+            )
+            yield event.plain_result(help_text)
+            return
+
+        search_tag = args_list[0]
+        duration_param = args_list[1] if len(args_list) > 1 else "week"
+        pages_to_fetch = int(args_list[2]) if len(args_list) > 2 and args_list[2].isdigit() else 5
+
+        duration_map = {
+            "day": "within_last_day",
+            "week": "within_last_week",
+            "month": "within_last_month",
+            "all": None
+        }
+
+        if duration_param not in duration_map:
+            yield event.plain_result(
+                f"无效的时间范围: {duration_param}\n"
+                f"可用选项: day(一天), week(一周), month(一月), all(全部)"
+            )
+            return
+
+        if not await self.client_wrapper.authenticate():
+            yield event.plain_result(self.pixiv_config.get_auth_error_message())
+            return
+
+        tag_result = validate_and_process_tags(search_tag)
+        if not tag_result["success"]:
+            yield event.plain_result(tag_result["error_message"])
+            return
+
+        exclude_tags = tag_result["exclude_tags"]
+        search_tags = tag_result["search_tags"]
+        display_tags = tag_result["display_tags"]
+
+        duration_display = {
+            "day": "一天内", "week": "一周内",
+            "month": "一个月内", "all": "全部时间"
+        }
+
+        logger.info(f"Pixiv热度搜索 - 标签: {search_tags}, 时间: {duration_param}, 页数: {pages_to_fetch}")
+
+        yield event.plain_result(
+            f"🔥 正在搜索「{display_tags}」{duration_display[duration_param]}的热门作品...\n"
+            f"将抓取 {pages_to_fetch} 页数据并按收藏数排序，请稍候..."
+        )
+
+        try:
+            all_illusts = []
+            page_count = 0
+            next_params = None
+
+            while page_count < pages_to_fetch:
+                try:
+                    if page_count == 0:
+                        search_kwargs = {
+                            "word": search_tags,
+                            "search_target": "partial_match_for_tags",
+                            "sort": "date_desc",
+                            "filter": "for_ios",
+                        }
+                        if duration_map[duration_param]:
+                            search_kwargs["duration"] = duration_map[duration_param]
+
+                        json_result = await self.client_wrapper.call_pixiv_api(
+                            self.client.search_illust, **search_kwargs
+                        )
+                    else:
+                        if not next_params:
+                            break
+                        json_result = await self.client_wrapper.call_pixiv_api(
+                            self.client.search_illust, **next_params
+                        )
+
+                    if not json_result or not hasattr(json_result, "illusts"):
+                        break
+
+                    current_illusts = json_result.illusts
+                    if current_illusts:
+                        all_illusts.extend(current_illusts)
+                        page_count += 1
+                        logger.info(f"热度搜索：已获取第 {page_count} 页，本页 {len(current_illusts)} 个")
+                    else:
+                        break
+
+                    if hasattr(json_result, "next_url") and json_result.next_url:
+                        next_params = self.client.parse_qs(json_result.next_url)
+                    else:
+                        break
+
+                    await asyncio.sleep(0.3)
+
+                except Exception as e:
+                    logger.error(f"热度搜索第 {page_count + 1} 页出错: {e}")
+                    break
+
+            if not all_illusts:
+                yield event.plain_result(f"未找到与「{display_tags}」相关的{duration_display[duration_param]}作品。")
+                return
+
+            # 按收藏数降序排序
+            sorted_illusts = sorted(
+                all_illusts,
+                key=lambda x: getattr(x, 'total_bookmarks', 0),
+                reverse=True
+            )
+
+            logger.info(f"热度搜索完成，共 {len(sorted_illusts)} 个作品，已按收藏数排序")
+
+            top_bookmark = getattr(sorted_illusts[0], 'total_bookmarks', 0)
+            yield event.plain_result(
+                f"✅ 搜索完成！共找到 {len(sorted_illusts)} 个作品\n"
+                f"🏆 最高收藏数: {top_bookmark}\n正在发送热门作品..."
+            )
+
+            config = FilterConfig(
+                r18_mode=self.pixiv_config.r18_mode,
+                ai_filter_mode=self.pixiv_config.ai_filter_mode,
+                display_tag_str=display_tags,
+                return_count=self.pixiv_config.return_count,
+                logger=logger,
+                show_filter_result=self.pixiv_config.show_filter_result,
+                excluded_tags=exclude_tags or [],
+                forward_threshold=self.pixiv_config.forward_threshold,
+                show_details=self.pixiv_config.show_details,
+            )
+
+            async for result in process_and_send_illusts_sorted(
+                    sorted_illusts, config, self.client, event,
+                    build_detail_message, send_pixiv_image, send_forward_message,
+                    is_novel=False,
+            ):
+                yield result
+
+        except Exception as e:
+            logger.error(f"热度搜索错误: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            yield event.plain_result(f"热度搜索时发生错误: {str(e)}")
