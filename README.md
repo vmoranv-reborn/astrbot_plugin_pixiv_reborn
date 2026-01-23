@@ -37,6 +37,20 @@
 - `/pixiv_random_status` - 查看随机搜索队列状态
 - `/pixiv_random_force` - 强制执行当前群聊的随机搜索（调试用）
 
+### 随机排行榜功能
+- `/pixiv_random_ranking_add <模式> [日期]` - 添加随机排行榜配置
+- `/pixiv_random_ranking_del <序号>` - 删除指定序号的随机排行榜配置
+- `/pixiv_random_ranking_list` - 查看当前群聊的随机排行榜配置列表
+
+### 热度搜索
+- `/pixiv_hot <标签> [时间范围] [页数]` - 按收藏数排序搜索（时间范围: day/week/month/all）
+
+### 配置管理
+- `/pixiv_config show` - 显示当前配置
+- `/pixiv_config <参数名>` - 查看指定参数值
+- `/pixiv_config <参数名> <值>` - 设置参数值
+- `/pixiv_config help` - 显示配置帮助
+
 ### 排除 tag
 - `-<tag>` - 排除包含 `<tag>` 的插画(仅在 /pixiv, /pixiv_novel, /pixiv_deepsearch, /pixiv_and 中有效)
 
@@ -151,6 +165,20 @@
 /pixiv_random_resume
 /pixiv_random_status
 /pixiv_random_force
+
+# 随机排行榜功能
+/pixiv_random_ranking_add day
+/pixiv_random_ranking_add week 2023-05-01
+/pixiv_random_ranking_del 1
+/pixiv_random_ranking_list
+
+# 热度搜索
+/pixiv_hot 可莉 week 5
+
+# 配置管理
+/pixiv_config show
+/pixiv_config r18_mode 仅 R18
+/pixiv_config random_search_min_interval 30
 ```
 
 ## ⚙️ 配置选项
@@ -158,19 +186,24 @@
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `refresh_token` | Pixiv API 认证令牌 | 必填 |
-| `return_count` | 每次搜索返回的图片数量 | 1 |
+| `return_count` | 每次搜索返回的图片数量 (1-10) | 1 |
 | `r18_mode` | R18内容处理模式 | 过滤 R18 |
 | `ai_filter_mode` | AI作品显示设置 | 显示 AI 作品 |
-| `deep_search_depth` | 深度搜索时搜索页数深度 | 3 |
+| `deep_search_depth` | 深度搜索时搜索页数深度 (-1无限制, 0-50) | 3 |
 | `show_details` | 是否在发送图片时附带详细信息 | true |
-| `forward_threshold` | 是否启用消息转发功能（启用后所有图片都使用转发） | false |
+| `forward_threshold` | 是否启用消息转发功能 | false |
 | `show_filter_result` | 是否显示过滤内容提示 | true |
-| `image_quality` | 默认发送的图片质量 (original/large/medium) | original |
+| `image_quality` | 默认发送的图片质量 (original/large/medium) | medium |
 | `is_fromfilesystem` | 是否通过文件转发 | false |
 | `refresh_token_interval_minutes` | 自动刷新 Refresh Token 的间隔时间（分钟） | 180 |
 | `subscription_enabled` | 是否启用订阅功能 | true |
 | `subscription_check_interval_minutes` | 订阅更新检查间隔（分钟） | 30 |
 | `proxy` | 网络代理地址，如 `http://127.0.0.1:7890` | 留空 |
+| `image_proxy_host` | 图片反代服务器地址 | i.pixiv.re |
+| `use_image_proxy` | 无代理时自动使用图片反代服务器 | true |
+| `random_search_min_interval` | 随机搜索最短间隔（分钟） | 60 |
+| `random_search_max_interval` | 随机搜索最长间隔（分钟） | 120 |
+| `random_sent_illust_retention_days` | 已发送作品保留天数 | 7 |
 
 ## 🔧 故障排除
 
