@@ -92,6 +92,9 @@ class PixivConfig:
         self.random_search_min_interval = self.config.get("random_search_min_interval", 60)
         self.random_search_max_interval = self.config.get("random_search_max_interval", 120)
         self.random_sent_illust_retention_days = self.config.get("random_sent_illust_retention_days", 7)
+        # 新增：图片反代配置
+        self.image_proxy_host = self.config.get("image_proxy_host", "i.pixiv.re")
+        self.use_image_proxy = self.config.get("use_image_proxy", True)
         
     
     def get_auth_error_message(self) -> str:

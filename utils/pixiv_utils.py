@@ -19,12 +19,33 @@ from .config import smart_clean_temp_dir, clean_temp_dir
 # 全局变量，需要在模块初始化时设置
 _config = None
 _temp_dir = None
+PIXIV_IMAGE_PROXY = "i.pixiv.re"
 
 def init_pixiv_utils(client: AppPixivAPI, config: PixivConfig, temp_dir: Path):
     """初始化 PixivUtils 模块的全局变量"""
     global _config, _temp_dir
     _config = config
     _temp_dir = temp_dir
+
+
+def get_proxied_image_url(original_url: str, use_proxy: bool = True) -> str:
+    """
+    将原始 Pixiv 图片 URL 转换为反代 URL
+
+    Args:
+        original_url: 原始的 i.pximg.net URL
+        use_proxy: 是否使用图片反代
+
+    Returns:
+        转换后的 URL
+    """
+    if not use_proxy or not original_url:
+        return original_url
+
+    if "i.pximg.net" in original_url:
+        return original_url.replace("i.pximg.net", PIXIV_IMAGE_PROXY)
+
+    return original_url
 
 
 def filter_items(items, tag_label, excluded_tags=None):
@@ -95,27 +116,34 @@ def build_ugoira_info_message(illust, metadata, gif_info, detail_message: str = 
 
 async def download_image(session: aiohttp.ClientSession, url: str, headers: dict = None) -> Optional[bytes]:
     """
-    下载图片数据
-    
-    Args:
-        session: aiohttp会话
-        url: 图片URL
-        headers: 请求头
-    
-    Returns:
-        图片字节数据，失败时返回None
+    下载图片数据，支持反代和超时控制
     """
     try:
         default_headers = {"Referer": "https://app-api.pixiv.net/"}
         if headers:
             default_headers.update(headers)
-            
-        async with session.get(url, headers=default_headers, proxy=_config.proxy or None) as response:
+        # 如果没有配置代理，使用图片反代 URL
+        use_image_proxy = not (_config.proxy if _config else None)
+        actual_url = get_proxied_image_url(url, use_proxy=use_image_proxy)
+
+        # 添加超时控制
+        timeout = aiohttp.ClientTimeout(total=45, connect=10, sock_read=30)
+
+        async with session.get(
+                actual_url,
+                headers=default_headers,
+                proxy=_config.proxy or None,
+                timeout=timeout
+        ) as response:
             if response.status == 200:
                 return await response.read()
             else:
-                logger.warning(f"Pixiv 插件：图片下载失败，状态码: {response.status}")
+                logger.warning(f"Pixiv 插件：图片下载失败，状态码: {response.status}, URL: {actual_url}")
                 return None
+
+    except asyncio.TimeoutError:
+        logger.warning(f"Pixiv 插件：图片下载超时 - {url}")
+        return None
     except Exception as e:
         logger.error(f"Pixiv 插件：图片下载异常 - {e}")
         return None

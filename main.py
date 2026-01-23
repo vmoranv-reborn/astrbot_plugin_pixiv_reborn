@@ -392,6 +392,12 @@ class PixivSearchPlugin(Star):
         if result:
             yield event.plain_result(result)
 
+    @command('pixiv_hot')
+    async def pixiv_hot(self, event: AstrMessageEvent, args: str = ""):
+        """按热度（收藏数）搜索作品"""
+        async for result in self.illust_handler.pixiv_hot(event, args):
+            yield result
+
     async def terminate(self):
         """插件终止时调用的清理函数"""
         logger.info("Pixiv 搜索插件正在停用...")

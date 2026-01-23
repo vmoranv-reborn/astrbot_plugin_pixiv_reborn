@@ -108,6 +108,18 @@
       "hint": "例如 http://127.0.0.1:7890，留空则不使用代理。",
       "default": ""
   },
+  "image_proxy_host": {
+      "type": "string",
+      "title": "图片反代服务器",
+      "description": "用于大陆直连的图片反代服务器地址，默认 i.pixiv.re",
+      "default": "i.pixiv.re"
+  },
+  "use_image_proxy": {
+      "type": "bool",
+      "title": "启用图片反代",
+      "description": "无代理时自动使用图片反代服务器下载图片",
+      "default": true
+  },
   "random_search_min_interval": {
       "description": "随机搜索发送间隔最短时间（分钟）",
       "type": "int",

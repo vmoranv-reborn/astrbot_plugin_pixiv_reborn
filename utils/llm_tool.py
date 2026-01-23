@@ -22,20 +22,36 @@ class PixivIllustSearchTool(FunctionTool[AstrAgentContext]):
     """
     pixiv_client: Any = None
     pixiv_config: Any = None
-
     name: str = "pixiv_search_illust"
-    description: str = "Pixiv插画搜索工具。用于搜索Pixiv上的插画作品。直接使用用户提供的关键词或标签。"
+    description: str = (
+        "【图片/插画搜索专用工具】用于在Pixiv上搜索二次元插画、动漫图片、壁纸等。"
+        "当用户想要：搜图、找图、来张图、发张图、看图、要壁纸、找插画、"
+        "搜索某个角色/作品的图片（如'初音未来的图'、'原神壁纸'）时，必须使用此工具。"
+        "此工具专门返回图片，不是网页搜索。任何涉及图片、插画、二次元图的请求都应优先使用本工具。"
+    )
     parameters: dict = Field(
         default_factory=lambda: {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "搜索关键词或标签。必须直接使用用户输入的原文。",
+                    "description": "搜索关键词或标签，直接使用用户输入的原文。例如：初音ミク、原神、可爱女孩等",
+                },
+                "count": {
+                    "type": "integer",
+                    "description": (
+                        "【必填】返回图片数量。"
+                        "必须根据用户请求的数量填写！"
+                        "例如：'来两张图'→count=2，'给我三张'→count=3，'来点图'→count=3。"
+                        "如果用户没有明确说数量，默认设为1。最小1，最大10。"
+                    ),
+                    "minimum": 1,
+                    "maximum": 10,
+                    "default": 1,
                 },
                 "filters": {
                     "type": "string",
-                    "description": "过滤条件，如 'safe', 'r18' 等",
+                    "description": "过滤条件：'safe'(全年龄)、'r18'(限制级)。默认为safe",
                 },
             },
             "required": ["query"],
@@ -47,78 +63,119 @@ class PixivIllustSearchTool(FunctionTool[AstrAgentContext]):
     ) -> ToolExecResult:
         try:
             query = kwargs.get("query", "")
-            logger.info(f"Pixiv插画搜索工具：搜索 '{query}'")
+            count = min(max(int(kwargs.get("count", 1)), 1), 10)
+            logger.info(f"Pixiv插画搜索工具：搜索 '{query}'，数量: {count}")
             
             if not self.pixiv_client:
                 return "错误: Pixiv客户端未初始化"
             
             tags = query.strip()
-            return await self._search_illust(tags, query, context)
+            return await self._search_illust(tags, query, context, count)
             
         except Exception as e:
             logger.error(f"Pixiv插画搜索失败: {e}")
             return f"搜索失败: {str(e)}"
 
-    async def _search_illust(self, tags, query, context):
+    async def _search_illust(self, tags, query, context, count=1):
+        """按热度（收藏数）搜索插画 - 一周内"""
         import asyncio
-        try:
-            search_result = await asyncio.to_thread(
-                self.pixiv_client.search_illust,
-                tags,
-                search_target="partial_match_for_tags"
-            )
-            
-            if search_result and search_result.illusts:
-                event = self._get_event(context)
-                if event:
-                    return await self._send_pixiv_result(event, search_result.illusts, query, tags)
-                else:
-                    return self._format_text_results(search_result.illusts, query, tags)
-            else:
-                return f"未找到关于 '{query}' 的插画。"
-        except Exception as e:
-            return f"API调用错误: {str(e)}"
 
-    async def _send_pixiv_result(self, event, items, query, tags):
-        logger.info("PixivIllustSearchTool: 准备发送图片")
+        all_illusts = []
+        page_count = 0
+        next_params = None
+        pages_to_fetch = 5
+
+        while page_count < pages_to_fetch:
+            try:
+                if page_count == 0:
+                    search_result = await asyncio.to_thread(
+                        self.pixiv_client.search_illust,
+                        tags,
+                        search_target="partial_match_for_tags",
+                        sort="date_desc",
+                        filter="for_ios",
+                        duration="within_last_week"  # 一周内
+                    )
+                else:
+                    if not next_params:
+                        break
+                    search_result = await asyncio.to_thread(
+                        self.pixiv_client.search_illust,
+                        **next_params
+                    )
+
+                if not search_result or not hasattr(search_result, "illusts"):
+                    break
+
+                if search_result.illusts:
+                    all_illusts.extend(search_result.illusts)
+                    page_count += 1
+                else:
+                    break
+
+                if hasattr(search_result, "next_url") and search_result.next_url:
+                    next_params = self.pixiv_client.parse_qs(search_result.next_url)
+                else:
+                    break
+
+                await asyncio.sleep(0.2)
+            except Exception as e:
+                logger.error(f"热度搜索第 {page_count + 1} 页出错: {e}")
+                break
+
+        if not all_illusts:
+            return f"未找到关于 '{query}' 的插画。"
+
+        sorted_illusts = sorted(
+            all_illusts,
+            key=lambda x: getattr(x, 'total_bookmarks', 0),
+            reverse=True
+        )
+
+        event = self._get_event(context)
+        if event:
+            return await self._send_pixiv_result(event, sorted_illusts, query, tags, count)
+        else:
+            return self._format_text_results(sorted_illusts, query, tags)
+
+    async def _send_pixiv_result(self, event, items, query, tags, count=1):
+        """发送按热度排序的结果"""
+        logger.info(f"PixivIllustSearchTool: 准备发送 {count} 张图片")
         config = FilterConfig(
             r18_mode=self.pixiv_config.r18_mode if self.pixiv_config else "过滤 R18",
             ai_filter_mode=self.pixiv_config.ai_filter_mode if self.pixiv_config else "过滤 AI 作品",
             display_tag_str=f"搜索:{query}",
-            return_count=self.pixiv_config.return_count if self.pixiv_config else 1,
+            return_count=count,
             logger=logger,
             show_filter_result=False,
             excluded_tags=[]
         )
-        
+
         filtered_items, _ = filter_illusts_with_reason(items, config)
-        
+
         if filtered_items:
-            selected_item = sample_illusts(filtered_items, 1, shuffle=True)[0]
-            detail_message = build_detail_message(selected_item, is_novel=False)
-            
-            title = getattr(selected_item, 'title', '未知标题')
-            author = getattr(selected_item.user, 'name', '未知作者') if hasattr(selected_item, 'user') else '未知作者'
-            item_id = getattr(selected_item, 'id', '未知ID')
-            
-            text_result = f"找到了！为您搜索到{query}的相关作品：\n\n**{title}** - {author}\n\nID: {item_id}\n您可以通过这个ID在Pixiv上查看完整内容。"
-            
+            # 按热度取前N张（不随机）
+            selected_items = filtered_items[:config.return_count]
+
+            text_result = f"🔥 找到了！为您搜索到「{query}」一周内最热门的 {len(selected_items)} 张作品："
+
             try:
-                results = []
-                async for result in send_pixiv_image(
-                    self.pixiv_client, event, selected_item, detail_message,
-                    show_details=self.pixiv_config.show_details if self.pixiv_config else True
-                ):
-                    results.append(result)
-                
-                if results:
-                    if hasattr(event, 'send'):
+                for selected_item in selected_items:
+                    detail_message = build_detail_message(selected_item, is_novel=False)
+
+                    results = []
+                    async for result in send_pixiv_image(
+                            self.pixiv_client, event, selected_item, detail_message,
+                            show_details=self.pixiv_config.show_details if self.pixiv_config else True
+                    ):
+                        results.append(result)
+
+                    if results and hasattr(event, 'send'):
                         try:
                             await event.send(results[0])
                         except Exception as e:
-                            logger.warning(f"手动发送图片失败: {e}")
-                            return f"发送图片失败，但已找到结果: {text_result}"
-                    return text_result
+                            logger.warning(f"发送图片失败: {e}")
+
                 return text_result
             except Exception as e:
                 logger.error(f"发送失败: {e}")

@@ -1,6 +1,6 @@
 import asyncio
 from astrbot.api import logger
-from pixivpy3 import AppPixivAPI, PixivError
+from pixivpy3 import ByPassSniApi, PixivError
 
 
 class PixivClientWrapper:
@@ -8,7 +8,18 @@ class PixivClientWrapper:
 
     def __init__(self, pixiv_config):
         self.pixiv_config = pixiv_config
-        self.client_api = AppPixivAPI(**pixiv_config.get_requests_kwargs())
+
+        # 根据是否配置代理选择不同的 API 客户端
+        if pixiv_config.proxy:
+            # 有代理时使用标准 AppPixivAPI
+            from pixivpy3 import AppPixivAPI
+            self.client_api = AppPixivAPI(**pixiv_config.get_requests_kwargs())
+            logger.info("Pixiv 插件：使用代理模式 (AppPixivAPI)")
+        else:
+            # 无代理时使用 ByPassSniApi (大陆直连)
+            self.client_api = ByPassSniApi()
+            self.client_api.require_appapi_hosts()
+            logger.info("Pixiv 插件：使用大陆直连模式 (ByPassSniApi)")
 
     async def authenticate(self) -> bool:
         """尝试使用配置的凭据进行 Pixiv API 认证"""
