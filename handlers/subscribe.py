@@ -30,7 +30,7 @@ class SubscribeHandler:
             )
             return
 
-        platform_name = event.platform_meta.name
+        platform_name = event.platform_meta.id
         message_type = event.get_message_type().value
         session_id = f"{platform_name}:{message_type}:{event.get_group_id() or event.get_sender_id()}"
 
