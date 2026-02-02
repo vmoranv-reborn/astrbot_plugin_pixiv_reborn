@@ -7,7 +7,8 @@ from ..utils.tag import (
     FilterConfig,
     validate_and_process_tags,
     process_and_send_illusts,
-    filter_illusts_with_reason, process_and_send_illusts_sorted
+    filter_illusts_with_reason,
+    process_and_send_illusts_sorted,
 )
 from ..utils.pixiv_utils import send_pixiv_image, send_forward_message
 
@@ -581,6 +582,24 @@ class IllustHandler:
             if not initial_illusts:
                 yield event.plain_result(f"未能获取到 {date} 的 {mode} 排行榜数据。")
                 return
+
+            # Pixiv 排行榜接口在非 manga 模式下也可能混入 type=manga 的作品，这里主动过滤掉
+            if mode and "manga" not in str(mode).lower():
+                before_count = len(initial_illusts)
+                initial_illusts = [
+                    i for i in initial_illusts if getattr(i, "type", None) != "manga"
+                ]
+                filtered_count = before_count - len(initial_illusts)
+                if filtered_count:
+                    logger.info(
+                        f"Pixiv 插件：排行榜 {mode} 已过滤 {filtered_count} 个漫画作品(manga)。"
+                    )
+
+                if not initial_illusts:
+                    yield event.plain_result(
+                        f"{mode} 排行榜结果均为漫画作品(manga)，已按非 manga 模式过滤。"
+                    )
+                    return
 
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
@@ -1211,10 +1230,7 @@ class IllustHandler:
             yield event.plain_result(f"获取特辑详情时发生错误: {str(e)}")
 
     async def pixiv_hot(
-            self,
-            event: AstrMessageEvent,
-            tags: str = "",
-            duration: str = "week"
+        self, event: AstrMessageEvent, tags: str = "", duration: str = "week"
     ):
         """
         按热度（收藏数）搜索特定标签的作品
@@ -1242,13 +1258,15 @@ class IllustHandler:
 
         search_tag = args_list[0]
         duration_param = args_list[1] if len(args_list) > 1 else "week"
-        pages_to_fetch = int(args_list[2]) if len(args_list) > 2 and args_list[2].isdigit() else 5
+        pages_to_fetch = (
+            int(args_list[2]) if len(args_list) > 2 and args_list[2].isdigit() else 5
+        )
 
         duration_map = {
             "day": "within_last_day",
             "week": "within_last_week",
             "month": "within_last_month",
-            "all": None
+            "all": None,
         }
 
         if duration_param not in duration_map:
@@ -1272,11 +1290,15 @@ class IllustHandler:
         display_tags = tag_result["display_tags"]
 
         duration_display = {
-            "day": "一天内", "week": "一周内",
-            "month": "一个月内", "all": "全部时间"
+            "day": "一天内",
+            "week": "一周内",
+            "month": "一个月内",
+            "all": "全部时间",
         }
 
-        logger.info(f"Pixiv热度搜索 - 标签: {search_tags}, 时间: {duration_param}, 页数: {pages_to_fetch}")
+        logger.info(
+            f"Pixiv热度搜索 - 标签: {search_tags}, 时间: {duration_param}, 页数: {pages_to_fetch}"
+        )
 
         yield event.plain_result(
             f"🔥 正在搜索「{display_tags}」{duration_display[duration_param]}的热门作品...\n"
@@ -1317,7 +1339,9 @@ class IllustHandler:
                     if current_illusts:
                         all_illusts.extend(current_illusts)
                         page_count += 1
-                        logger.info(f"热度搜索：已获取第 {page_count} 页，本页 {len(current_illusts)} 个")
+                        logger.info(
+                            f"热度搜索：已获取第 {page_count} 页，本页 {len(current_illusts)} 个"
+                        )
                     else:
                         break
 
@@ -1333,19 +1357,23 @@ class IllustHandler:
                     break
 
             if not all_illusts:
-                yield event.plain_result(f"未找到与「{display_tags}」相关的{duration_display[duration_param]}作品。")
+                yield event.plain_result(
+                    f"未找到与「{display_tags}」相关的{duration_display[duration_param]}作品。"
+                )
                 return
 
             # 按收藏数降序排序
             sorted_illusts = sorted(
                 all_illusts,
-                key=lambda x: getattr(x, 'total_bookmarks', 0),
-                reverse=True
+                key=lambda x: getattr(x, "total_bookmarks", 0),
+                reverse=True,
             )
 
-            logger.info(f"热度搜索完成，共 {len(sorted_illusts)} 个作品，已按收藏数排序")
+            logger.info(
+                f"热度搜索完成，共 {len(sorted_illusts)} 个作品，已按收藏数排序"
+            )
 
-            top_bookmark = getattr(sorted_illusts[0], 'total_bookmarks', 0)
+            top_bookmark = getattr(sorted_illusts[0], "total_bookmarks", 0)
             yield event.plain_result(
                 f"✅ 搜索完成！共找到 {len(sorted_illusts)} 个作品\n"
                 f"🏆 最高收藏数: {top_bookmark}\n正在发送热门作品..."
@@ -1364,14 +1392,20 @@ class IllustHandler:
             )
 
             async for result in process_and_send_illusts_sorted(
-                    sorted_illusts, config, self.client, event,
-                    build_detail_message, send_pixiv_image, send_forward_message,
-                    is_novel=False,
+                sorted_illusts,
+                config,
+                self.client,
+                event,
+                build_detail_message,
+                send_pixiv_image,
+                send_forward_message,
+                is_novel=False,
             ):
                 yield result
 
         except Exception as e:
             logger.error(f"热度搜索错误: {e}")
             import traceback
+
             logger.error(traceback.format_exc())
             yield event.plain_result(f"热度搜索时发生错误: {str(e)}")

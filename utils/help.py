@@ -11,10 +11,10 @@ from astrbot.api import logger
 
 class HelpManager:
     """帮助消息管理器"""
-    
+
     def __init__(self, data_dir: Path):
         """初始化帮助管理器
-        
+
         Args:
             data_dir: 数据目录路径
         """
@@ -23,12 +23,12 @@ class HelpManager:
         self.help_file = Path(__file__).parent.parent / "data" / "helpmsg.json"
         self._help_messages: Dict[str, str] = {}
         self._load_help_messages()
-    
+
     def _load_help_messages(self):
         """加载帮助消息"""
         try:
             if self.help_file.exists():
-                with open(self.help_file, 'r', encoding='utf-8') as f:
+                with open(self.help_file, "r", encoding="utf-8") as f:
                     self._help_messages = json.load(f)
                 logger.info(f"Pixiv 插件：成功加载帮助消息文件 {self.help_file}")
             else:
@@ -37,14 +37,14 @@ class HelpManager:
         except Exception as e:
             logger.error(f"Pixiv 插件：加载帮助消息文件失败 - {e}")
             self._help_messages = {}
-    
+
     def get_help_message(self, key: str, default: Optional[str] = None) -> str:
         """获取帮助消息
-        
+
         Args:
             key: 帮助消息的键
             default: 默认消息（如果键不存在）
-            
+
         Returns:
             str: 帮助消息
         """
@@ -53,7 +53,7 @@ class HelpManager:
         else:
             logger.warning(f"Pixiv 插件：未找到帮助消息键: {key}")
             return default or f"帮助消息 '{key}' 未找到"
-    
+
     def reload_help_messages(self):
         """重新加载帮助消息"""
         self._load_help_messages()
@@ -65,7 +65,7 @@ _help_manager: Optional[HelpManager] = None
 
 def init_help_manager(data_dir: Path):
     """初始化帮助管理器
-    
+
     Args:
         data_dir: 数据目录路径
     """
@@ -75,11 +75,11 @@ def init_help_manager(data_dir: Path):
 
 def get_help_message(key: str, default: Optional[str] = None) -> str:
     """获取帮助消息
-    
+
     Args:
         key: 帮助消息的键
         default: 默认消息（如果键不存在）
-        
+
     Returns:
         str: 帮助消息
     """

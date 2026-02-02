@@ -56,7 +56,10 @@ class RandomSearchService:
             )
             # 添加定期清理任务，每天清理一次过期记录
             self.scheduler.add_job(
-                self._cleanup_task, "cron", hour=2, minute=0  # 每天凌晨2点执行
+                self._cleanup_task,
+                "cron",
+                hour=2,
+                minute=0,  # 每天凌晨2点执行
             )
 
             self.scheduler.start()
@@ -466,6 +469,18 @@ class RandomSearchService:
             if not initial_illusts:
                 logger.info(f"排行榜 {mode} 的随机搜索未返回结果。")
                 return
+
+            # Pixiv 排行榜接口在非 manga 模式下也可能混入 type=manga 的作品，这里主动过滤掉
+            if mode and "manga" not in str(mode).lower():
+                before_count = len(initial_illusts)
+                initial_illusts = [
+                    i for i in initial_illusts if getattr(i, "type", None) != "manga"
+                ]
+                filtered_count = before_count - len(initial_illusts)
+                if filtered_count:
+                    logger.info(
+                        f"排行榜 {mode}：已过滤 {filtered_count} 个漫画作品(manga)。"
+                    )
 
             # 过滤已发送的作品
             initial_illusts = filter_sent_illusts(initial_illusts, chat_id)

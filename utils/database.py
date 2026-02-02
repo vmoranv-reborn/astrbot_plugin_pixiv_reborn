@@ -67,17 +67,6 @@ class RandomRankingConfig(BaseModel):
         primary_key = pw.CompositeKey("chat_id", "mode")
 
 
-class RandomRankingConfig(BaseModel):
-    """随机排行榜配置模型"""
-    chat_id = pw.CharField()  # 群号
-    session_id = pw.TextField()  # 用于发送消息
-    mode = pw.CharField()  # 排行榜模式
-    date = pw.CharField(null=True)  # 可选的日期参数
-    is_suspended = pw.BooleanField(default=False)  # 是否暂停
-    
-    class Meta:
-        primary_key = pw.CompositeKey('chat_id', 'mode')
-
 class RandomSearchSchedule(BaseModel):
     """随机搜索调度时间模型"""
 
@@ -296,8 +285,7 @@ def get_random_tags(chat_id: str) -> list:
     try:
         return list(
             RandomSearchTag.select().where(
-                (RandomSearchTag.chat_id == chat_id)
-                & (RandomSearchTag.is_suspended == False)
+                (RandomSearchTag.chat_id == chat_id) & (~RandomSearchTag.is_suspended)
             )
         )
     except Exception as e:
@@ -339,7 +327,7 @@ def suspend_random_search(chat_id: str) -> (bool, str):
         updated_rows = query.execute()
         if updated_rows > 0:
             logger.info(f"群聊 {chat_id} 的随机搜索已暂停。")
-            return True, f"已暂停当前群聊的随机搜索功能。"
+            return True, "已暂停当前群聊的随机搜索功能。"
         else:
             return False, "当前群聊没有配置随机搜索标签。"
     except Exception as e:
@@ -356,7 +344,7 @@ def resume_random_search(chat_id: str) -> (bool, str):
         updated_rows = query.execute()
         if updated_rows > 0:
             logger.info(f"群聊 {chat_id} 的随机搜索已恢复。")
-            return True, f"已恢复当前群聊的随机搜索功能。"
+            return True, "已恢复当前群聊的随机搜索功能。"
         else:
             return False, "当前群聊没有配置随机搜索标签。"
     except Exception as e:
@@ -551,7 +539,7 @@ def get_random_rankings(chat_id: str) -> list:
         return list(
             RandomRankingConfig.select().where(
                 (RandomRankingConfig.chat_id == chat_id)
-                & (RandomRankingConfig.is_suspended == False)
+                & (~RandomRankingConfig.is_suspended)
             )
         )
     except Exception as e:

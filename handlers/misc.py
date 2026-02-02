@@ -8,6 +8,7 @@ class MiscHandler:
     Pixiv 杂项功能处理器
     负责处理 Pixiv 插画趋势标签获取和 AI 作品显示设置等功能
     """
+
     def __init__(self, client_wrapper, pixiv_config):
         self.client_wrapper = client_wrapper
         self.client = client_wrapper.client_api

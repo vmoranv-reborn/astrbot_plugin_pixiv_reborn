@@ -1,5 +1,4 @@
 from astrbot.api.event import AstrMessageEvent
-from astrbot.api import logger
 
 from ..utils.tag import validate_and_process_tags
 
@@ -19,9 +18,7 @@ from ..utils.database import (
 
 
 class RandomIllustHandler:
-
     def __init__(self, client_wrapper, pixiv_config, context):
-
         self.client_wrapper = client_wrapper
         self.client = client_wrapper.client_api
         self.pixiv_config = pixiv_config
@@ -75,7 +72,7 @@ class RandomIllustHandler:
 
         msg = "当前随机搜索标签列表：\n"
         for i, tag_entry in enumerate(tags):
-            msg += f"{i+1}. {tag_entry.tag}\n"
+            msg += f"{i + 1}. {tag_entry.tag}\n"
 
         yield event.plain_result(msg)
 
@@ -153,19 +150,6 @@ class RandomIllustHandler:
 
     async def pixiv_random_ranking_add(self, event: AstrMessageEvent, args: str = ""):
         """添加随机排行榜配置"""
-        args_list = args.strip().split() if args.strip() else []
-
-        if not args_list or args_list[0].lower() == "help":
-            yield event.plain_result(
-                "用法: /pixiv_random_ranking_add <模式> [日期]\n"
-                "模式: day, week, month, day_male, day_female, week_original, week_rookie, day_manga, day_r18 等\n"
-                "日期: 可选，格式 YYYY-MM-DD"
-            )
-            return
-
-        mode = args_list[0]
-        date = args_list[1] if len(args_list) > 1 else None
-
         valid_modes = [
             "day",
             "week",
@@ -181,6 +165,19 @@ class RandomIllustHandler:
             "week_r18",
             "week_r18g",
         ]
+
+        args_list = args.strip().split() if args.strip() else []
+
+        if not args_list or args_list[0].lower() == "help":
+            yield event.plain_result(
+                "用法: /pixiv_random_ranking_add <模式> [日期]\n"
+                f"模式: {', '.join(valid_modes)}\n"
+                "日期: 可选，格式 YYYY-MM-DD"
+            )
+            return
+
+        mode = args_list[0]
+        date = args_list[1] if len(args_list) > 1 else None
 
         if mode not in valid_modes:
             yield event.plain_result(
@@ -232,6 +229,6 @@ class RandomIllustHandler:
         for i, config in enumerate(configs):
             status = "（暂停）" if config.is_suspended else ""
             date_info = f" ({config.date})" if config.date else ""
-            msg += f"{i+1}. {config.mode}{date_info}{status}\n"
+            msg += f"{i + 1}. {config.mode}{date_info}{status}\n"
 
         yield event.plain_result(msg)

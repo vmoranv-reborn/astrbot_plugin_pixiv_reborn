@@ -1,4 +1,4 @@
-from typing import Any, List, Union
+from typing import Any, List
 import hashlib
 import io
 import base64
@@ -12,14 +12,20 @@ from astrbot.core.agent.tool import FunctionTool, ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
 from astrbot.api import logger
 
-from .tag import build_detail_message, FilterConfig, filter_illusts_with_reason, sample_illusts
+from .tag import (
+    build_detail_message,
+    FilterConfig,
+    filter_illusts_with_reason,
+)
 from .pixiv_utils import send_pixiv_image, generate_safe_filename
+
 
 @dataclass
 class PixivIllustSearchTool(FunctionTool[AstrAgentContext]):
     """
     Pixiv插画搜索工具
     """
+
     pixiv_client: Any = None
     pixiv_config: Any = None
     name: str = "pixiv_search_illust"
@@ -65,13 +71,13 @@ class PixivIllustSearchTool(FunctionTool[AstrAgentContext]):
             query = kwargs.get("query", "")
             count = min(max(int(kwargs.get("count", 1)), 1), 10)
             logger.info(f"Pixiv插画搜索工具：搜索 '{query}'，数量: {count}")
-            
+
             if not self.pixiv_client:
                 return "错误: Pixiv客户端未初始化"
-            
+
             tags = query.strip()
             return await self._search_illust(tags, query, context, count)
-            
+
         except Exception as e:
             logger.error(f"Pixiv插画搜索失败: {e}")
             return f"搜索失败: {str(e)}"
@@ -94,14 +100,13 @@ class PixivIllustSearchTool(FunctionTool[AstrAgentContext]):
                         search_target="partial_match_for_tags",
                         sort="date_desc",
                         filter="for_ios",
-                        duration="within_last_week"  # 一周内
+                        duration="within_last_week",  # 一周内
                     )
                 else:
                     if not next_params:
                         break
                     search_result = await asyncio.to_thread(
-                        self.pixiv_client.search_illust,
-                        **next_params
+                        self.pixiv_client.search_illust, **next_params
                     )
 
                 if not search_result or not hasattr(search_result, "illusts"):
@@ -127,14 +132,14 @@ class PixivIllustSearchTool(FunctionTool[AstrAgentContext]):
             return f"未找到关于 '{query}' 的插画。"
 
         sorted_illusts = sorted(
-            all_illusts,
-            key=lambda x: getattr(x, 'total_bookmarks', 0),
-            reverse=True
+            all_illusts, key=lambda x: getattr(x, "total_bookmarks", 0), reverse=True
         )
 
         event = self._get_event(context)
         if event:
-            return await self._send_pixiv_result(event, sorted_illusts, query, tags, count)
+            return await self._send_pixiv_result(
+                event, sorted_illusts, query, tags, count
+            )
         else:
             return self._format_text_results(sorted_illusts, query, tags)
 
@@ -143,19 +148,21 @@ class PixivIllustSearchTool(FunctionTool[AstrAgentContext]):
         logger.info(f"PixivIllustSearchTool: 准备发送 {count} 张图片")
         config = FilterConfig(
             r18_mode=self.pixiv_config.r18_mode if self.pixiv_config else "过滤 R18",
-            ai_filter_mode=self.pixiv_config.ai_filter_mode if self.pixiv_config else "过滤 AI 作品",
+            ai_filter_mode=self.pixiv_config.ai_filter_mode
+            if self.pixiv_config
+            else "过滤 AI 作品",
             display_tag_str=f"搜索:{query}",
             return_count=count,
             logger=logger,
             show_filter_result=False,
-            excluded_tags=[]
+            excluded_tags=[],
         )
 
         filtered_items, _ = filter_illusts_with_reason(items, config)
 
         if filtered_items:
             # 按热度取前N张（不随机）
-            selected_items = filtered_items[:config.return_count]
+            selected_items = filtered_items[: config.return_count]
 
             text_result = f"🔥 找到了！为您搜索到「{query}」一周内最热门的 {len(selected_items)} 张作品："
 
@@ -165,12 +172,17 @@ class PixivIllustSearchTool(FunctionTool[AstrAgentContext]):
 
                     results = []
                     async for result in send_pixiv_image(
-                            self.pixiv_client, event, selected_item, detail_message,
-                            show_details=self.pixiv_config.show_details if self.pixiv_config else True
+                        self.pixiv_client,
+                        event,
+                        selected_item,
+                        detail_message,
+                        show_details=self.pixiv_config.show_details
+                        if self.pixiv_config
+                        else True,
                     ):
                         results.append(result)
 
-                    if results and hasattr(event, 'send'):
+                    if results and hasattr(event, "send"):
                         try:
                             await event.send(results[0])
                         except Exception as e:
@@ -181,23 +193,23 @@ class PixivIllustSearchTool(FunctionTool[AstrAgentContext]):
                 logger.error(f"发送失败: {e}")
                 return text_result
         else:
-            return f"找到插画但被过滤了 (可能是R18或AI作品)。"
+            return "找到插画但被过滤了 (可能是R18或AI作品)。"
 
     def _get_event(self, context):
         try:
-            agent_context = context.context if hasattr(context, 'context') else context
-            if hasattr(context, 'event') and context.event:
+            agent_context = context.context if hasattr(context, "context") else context
+            if hasattr(context, "event") and context.event:
                 return context.event
-            elif hasattr(agent_context, 'event') and agent_context.event:
+            elif hasattr(agent_context, "event") and agent_context.event:
                 return agent_context.event
-        except:
+        except Exception:
             pass
         return None
 
     def _format_text_results(self, items, query, tags):
-        result = f"找到以下插画:\n"
+        result = "找到以下插画:\n"
         for i, item in enumerate(items[:5], 1):
-            title = getattr(item, 'title', '未知标题')
+            title = getattr(item, "title", "未知标题")
             result += f"{i}. {title} (ID: {item.id})\n"
         return result
 
@@ -207,6 +219,7 @@ class PixivNovelSearchTool(FunctionTool[AstrAgentContext]):
     """
     Pixiv小说搜索工具
     """
+
     pixiv_client: Any = None
     pixiv_config: Any = None
 
@@ -235,48 +248,54 @@ class PixivNovelSearchTool(FunctionTool[AstrAgentContext]):
         try:
             query = kwargs.get("query", "")
             logger.info(f"Pixiv小说搜索工具：搜索 '{query}'")
-            
+
             if not self.pixiv_client:
                 return "错误: Pixiv客户端未初始化"
-            
+
             tags = query.strip()
             return await self._search_novel(tags, query, context)
-            
+
         except Exception as e:
             logger.error(f"Pixiv小说搜索失败: {e}")
             return f"搜索失败: {str(e)}"
 
     async def _search_novel(self, tags, query, context):
         import asyncio
-        
+
         # ID 检查
         if query.isdigit():
             logger.info(f"检测到小说ID {query}")
             try:
-                novel_detail = await asyncio.to_thread(self.pixiv_client.novel_detail, int(query))
+                novel_detail = await asyncio.to_thread(
+                    self.pixiv_client.novel_detail, int(query)
+                )
                 if novel_detail and novel_detail.novel:
                     event = self._get_event(context)
                     if event:
-                        return await self._send_novel_result(event, [novel_detail.novel], query, tags)
+                        return await self._send_novel_result(
+                            event, [novel_detail.novel], query, tags
+                        )
                     else:
                         return f"找到小说: {novel_detail.novel.title} (ID: {query})，但无法发送文件(无事件上下文)。"
                 else:
                     return f"未找到ID为 {query} 的小说。"
             except Exception as e:
                 return f"获取小说详情失败: {str(e)}"
-        
+
         # 标签搜索
         try:
             search_result = await asyncio.to_thread(
                 self.pixiv_client.search_novel,
                 tags,
-                search_target="partial_match_for_tags"
+                search_target="partial_match_for_tags",
             )
-            
+
             if search_result and search_result.novels:
                 event = self._get_event(context)
                 if event:
-                    return await self._send_novel_result(event, search_result.novels, query, tags)
+                    return await self._send_novel_result(
+                        event, search_result.novels, query, tags
+                    )
                 else:
                     return self._format_text_results(search_result.novels, query, tags)
             else:
@@ -286,35 +305,41 @@ class PixivNovelSearchTool(FunctionTool[AstrAgentContext]):
 
     async def _send_novel_result(self, event, items, query, tags):
         import asyncio
+
         if not items:
             return "未找到小说。"
-        
-        selected_item = items[0] # 取第一个
+
+        selected_item = items[0]  # 取第一个
         novel_id = str(selected_item.id)
         novel_title = selected_item.title
-        
+
         logger.info(f"准备下载小说 {novel_title} (ID: {novel_id})")
-        
+
         try:
-            novel_content_result = await asyncio.to_thread(self.pixiv_client.webview_novel, novel_id)
+            novel_content_result = await asyncio.to_thread(
+                self.pixiv_client.webview_novel, novel_id
+            )
             if not novel_content_result or not hasattr(novel_content_result, "text"):
                 return f"无法获取小说内容 (ID: {novel_id})。"
-            
+
             novel_text = novel_content_result.text
-            
+
             try:
-                pdf_bytes = await asyncio.to_thread(self._create_pdf_from_text, novel_title, novel_text)
+                pdf_bytes = await asyncio.to_thread(
+                    self._create_pdf_from_text, novel_title, novel_text
+                )
             except FileNotFoundError:
                 return "无法生成PDF：字体文件丢失。"
             except Exception as e:
                 return f"生成PDF失败: {str(e)}"
-            
+
             # 加密
             password = hashlib.md5(novel_id.encode()).hexdigest()
             final_pdf_bytes = pdf_bytes
             password_notice = ""
             try:
                 from PyPDF2 import PdfReader, PdfWriter
+
                 reader = PdfReader(io.BytesIO(pdf_bytes))
                 writer = PdfWriter()
                 for page in reader.pages:
@@ -324,33 +349,44 @@ class PixivNovelSearchTool(FunctionTool[AstrAgentContext]):
                     writer.write(bs)
                     final_pdf_bytes = bs.getvalue()
                 password_notice = f"PDF已加密，密码: {password}"
-            except:
+            except Exception:
                 password_notice = "PDF未加密。"
-            
+
             # 发送
             safe_title = generate_safe_filename(novel_title, "novel")
             file_name = f"{safe_title}_{novel_id}.pdf"
-            
+
             file_sent = False
             if event.get_platform_name() == "aiocqhttp" and event.get_group_id():
                 try:
-                    from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import AiocqhttpMessageEvent
+                    from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
+                        AiocqhttpMessageEvent,
+                    )
+
                     if isinstance(event, AiocqhttpMessageEvent):
                         client_bot = event.bot
                         group_id = event.get_group_id()
-                        file_base64 = base64.b64encode(final_pdf_bytes).decode('utf-8')
-                        await client_bot.upload_group_file(group_id=group_id, file=f"base64://{file_base64}", name=file_name)
+                        file_base64 = base64.b64encode(final_pdf_bytes).decode("utf-8")
+                        await client_bot.upload_group_file(
+                            group_id=group_id,
+                            file=f"base64://{file_base64}",
+                            name=file_name,
+                        )
                         file_sent = True
                 except Exception as e:
                     logger.error(f"群文件上传失败: {e}")
-            
-            author = getattr(selected_item.user, 'name', '未知作者') if hasattr(selected_item, 'user') else '未知作者'
-            
+
+            author = (
+                getattr(selected_item.user, "name", "未知作者")
+                if hasattr(selected_item, "user")
+                else "未知作者"
+            )
+
             if file_sent:
                 return f"已下载小说：\n**{novel_title}** - {author}\nID: {novel_id}\n文件已上传到群文件。\n{password_notice}\n(任务完成)"
             else:
                 return f"已找到小说：\n**{novel_title}** - {author}\nID: {novel_id}\n无法发送文件，请尝试手动下载。\n(任务完成)"
-                
+
         except Exception as e:
             logger.error(f"处理小说失败: {e}")
             return f"处理小说失败: {str(e)}"
@@ -368,32 +404,35 @@ class PixivNovelSearchTool(FunctionTool[AstrAgentContext]):
         pdf.ln(10)
         pdf.set_font_size(12)
         pdf.multi_cell(0, 10, text)
-        return pdf.output(dest='S')
+        return pdf.output(dest="S")
 
     def _get_event(self, context):
         try:
-            agent_context = context.context if hasattr(context, 'context') else context
-            if hasattr(context, 'event') and context.event:
+            agent_context = context.context if hasattr(context, "context") else context
+            if hasattr(context, "event") and context.event:
                 return context.event
-            elif hasattr(agent_context, 'event') and agent_context.event:
+            elif hasattr(agent_context, "event") and agent_context.event:
                 return agent_context.event
-        except:
+        except Exception:
             pass
         return None
 
     def _format_text_results(self, items, query, tags):
-        result = f"找到以下小说:\n"
+        result = "找到以下小说:\n"
         for i, item in enumerate(items[:5], 1):
-            title = getattr(item, 'title', '未知标题')
+            title = getattr(item, "title", "未知标题")
             result += f"{i}. {title} (ID: {item.id})\n"
         return result
+
 
 def create_pixiv_llm_tools(pixiv_client=None, pixiv_config=None) -> List[FunctionTool]:
     """
     创建Pixiv相关的LLM工具列表
     """
-    logger.info(f"创建Pixiv LLM工具，pixiv_client: {'已设置' if pixiv_client else '未设置'}")
-    
+    logger.info(
+        f"创建Pixiv LLM工具，pixiv_client: {'已设置' if pixiv_client else '未设置'}"
+    )
+
     tools = [
         PixivIllustSearchTool(pixiv_client=pixiv_client, pixiv_config=pixiv_config),
         PixivNovelSearchTool(pixiv_client=pixiv_client, pixiv_config=pixiv_config),

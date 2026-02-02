@@ -13,6 +13,7 @@ class PixivClientWrapper:
         if pixiv_config.proxy:
             # 有代理时使用标准 AppPixivAPI
             from pixivpy3 import AppPixivAPI
+
             self.client_api = AppPixivAPI(**pixiv_config.get_requests_kwargs())
             logger.info("Pixiv 插件：使用代理模式 (AppPixivAPI)")
         else:
@@ -89,7 +90,6 @@ class PixivClientWrapper:
                 logger.error(traceback.format_exc())
 
     async def start_refresh_task(self):
-
         # 启动后台刷新任务
         if self.pixiv_config.refresh_interval > 0:
             self._refresh_task = asyncio.create_task(self.periodic_token_refresh())

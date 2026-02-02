@@ -24,7 +24,6 @@ class NovelHandler:
     """
 
     def __init__(self, client_wrapper, pixiv_config):
-
         self.client_wrapper = client_wrapper
         self.client = client_wrapper.client_api
         self.pixiv_config = pixiv_config
@@ -489,7 +488,6 @@ class NovelHandler:
         logger.info(f"Pixiv 插件：正在准备下载小说并转换为PDF - ID: {cleaned_id}")
 
         try:
-
             # 获取小说详情和内容
             novel_detail_result = await asyncio.to_thread(
                 self.client.novel_detail, cleaned_id
