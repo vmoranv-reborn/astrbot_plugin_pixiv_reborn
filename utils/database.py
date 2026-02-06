@@ -77,6 +77,51 @@ class RandomSearchSchedule(BaseModel):
         primary_key = pw.CompositeKey("chat_id")
 
 
+def _coerce_schedule_time(value, chat_id: str = ""):
+    """将数据库中的调度时间统一转换为 datetime。"""
+    if value is None:
+        return None
+
+    if isinstance(value, datetime):
+        return value
+
+    prefix = f"群组 {chat_id} " if chat_id else ""
+
+    # 兼容历史版本可能存储的 Unix 时间戳
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            return datetime.fromtimestamp(value)
+        except (ValueError, OSError, OverflowError):
+            logger.warning(f"{prefix}调度时间时间戳无效: {value!r}")
+            return None
+
+    # 兼容字符串格式（包括 datetime 字符串和时间戳字符串）
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+
+        for fmt in (
+            "%Y-%m-%d %H:%M:%S.%f",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%dT%H:%M:%S.%f",
+            "%Y-%m-%dT%H:%M:%S",
+        ):
+            try:
+                return datetime.strptime(raw, fmt)
+            except ValueError:
+                continue
+
+        try:
+            return datetime.fromtimestamp(float(raw))
+        except (ValueError, OSError, OverflowError):
+            logger.warning(f"{prefix}调度时间字符串格式无法解析: {value!r}")
+            return None
+
+    logger.warning(f"{prefix}调度时间类型异常: {type(value).__name__}, 值: {value!r}")
+    return None
+
+
 def initialize_database():
     """初始化数据库，创建表"""
     try:
@@ -444,7 +489,20 @@ def get_schedule_time(chat_id: str) -> datetime:
             RandomSearchSchedule.chat_id == chat_id
         )
         if schedule:
-            return schedule.next_execution_time
+            normalized_time = _coerce_schedule_time(schedule.next_execution_time, chat_id)
+            if normalized_time is None:
+                logger.warning(f"群组 {chat_id} 的调度时间无效，将重新调度。")
+                return None
+
+            # 读到历史格式时顺便回写为标准 datetime，避免后续重复转换
+            if normalized_time != schedule.next_execution_time:
+                (
+                    RandomSearchSchedule.update(next_execution_time=normalized_time)
+                    .where(RandomSearchSchedule.chat_id == chat_id)
+                    .execute()
+                )
+
+            return normalized_time
         return None
     except Exception as e:
         logger.error(f"获取调度时间失败: {e}")
@@ -454,10 +512,17 @@ def get_schedule_time(chat_id: str) -> datetime:
 def set_schedule_time(chat_id: str, next_time: datetime):
     """设置指定群聊的下次执行时间"""
     try:
+        normalized_time = _coerce_schedule_time(next_time, chat_id)
+        if normalized_time is None:
+            logger.error(
+                f"设置调度时间失败: 群组 {chat_id} 的 next_time 无法转换为 datetime ({next_time!r})"
+            )
+            return
+
         with db.atomic():
             # 先尝试更新现有记录
             updated = (
-                RandomSearchSchedule.update(next_execution_time=next_time)
+                RandomSearchSchedule.update(next_execution_time=normalized_time)
                 .where(RandomSearchSchedule.chat_id == chat_id)
                 .execute()
             )
@@ -465,9 +530,9 @@ def set_schedule_time(chat_id: str, next_time: datetime):
             # 如果没有更新到记录，则插入新记录
             if updated == 0:
                 RandomSearchSchedule.create(
-                    chat_id=chat_id, next_execution_time=next_time
+                    chat_id=chat_id, next_execution_time=normalized_time
                 )
-        logger.debug(f"已设置群组 {chat_id} 的下次执行时间为 {next_time}")
+        logger.debug(f"已设置群组 {chat_id} 的下次执行时间为 {normalized_time}")
     except Exception as e:
         logger.error(f"设置调度时间失败: {e}")
 
@@ -489,9 +554,23 @@ def get_all_schedule_times() -> dict:
     """获取所有群聊的调度时间"""
     try:
         schedules = RandomSearchSchedule.select()
-        return {
-            schedule.chat_id: schedule.next_execution_time for schedule in schedules
-        }
+        schedule_map = {}
+        for schedule in schedules:
+            chat_id = schedule.chat_id
+            normalized_time = _coerce_schedule_time(schedule.next_execution_time, chat_id)
+            if normalized_time is None:
+                logger.warning(f"群组 {chat_id} 的调度时间无效，已跳过该记录。")
+                continue
+
+            if normalized_time != schedule.next_execution_time:
+                (
+                    RandomSearchSchedule.update(next_execution_time=normalized_time)
+                    .where(RandomSearchSchedule.chat_id == chat_id)
+                    .execute()
+                )
+
+            schedule_map[chat_id] = normalized_time
+        return schedule_map
     except Exception as e:
         logger.error(f"获取所有调度时间失败: {e}")
         return {}
