@@ -83,7 +83,7 @@ class PixivSearchPlugin(Star):
         logger.info(f"Pixiv 插件配置加载：{self.pixiv_config.get_config_info()}")
 
         # 启动后台刷新任务
-        asyncio.create_task(self.client_wrapper.start_refresh_task())
+        self._refresh_task = self.client_wrapper.start_refresh_task()
 
         # 启动订阅服务
         if self.pixiv_config.subscription_enabled:
@@ -121,7 +121,7 @@ class PixivSearchPlugin(Star):
             "name": "pixiv_search",
             "author": "vmoranv",
             "description": "Pixiv 图片搜索",
-            "version": "1.5.2",
+            "version": "1.6.0",
             "homepage": "https://github.com/vmoranv-reborn/astrbot_plugin_pixiv_search",
         }
 
@@ -404,16 +404,12 @@ class PixivSearchPlugin(Star):
         # 停止订阅服务
         if self.sub_service:
             self.sub_service.stop()
+        # 停止随机搜索服务
+        if self.random_search_service:
+            await self.random_search_service.stop()
         # 取消后台刷新任务
-        if self._refresh_task and not self._refresh_task.done():
-            self._refresh_task.cancel()
-            try:
-                # 等待任务实际取消
-                await self._refresh_task
-            except asyncio.CancelledError:
-                logger.info("Pixiv Token 刷新任务已成功取消。")
-            except Exception as e:
-                logger.error(f"等待 Pixiv Token 刷新任务取消时发生错误: {e}")
+        await self.client_wrapper.stop_refresh_task()
+        self._refresh_task = self.client_wrapper._refresh_task
 
         logger.info("Pixiv 搜索插件已停用。")
         # 关闭HTTP会话
@@ -438,7 +434,7 @@ class PixivSearchPlugin(Star):
         """
         try:
             # 验证是否已认证
-            if not await self._authenticate():
+            if not await self.client_wrapper.authenticate():
                 return self.pixiv_config.get_auth_error_message()
 
             logger.info(
@@ -446,9 +442,16 @@ class PixivSearchPlugin(Star):
             )
 
             # 使用PixivSearchTool进行搜索
+            normalized_type = (search_type or "illust").strip().lower()
+            target_tool_name = (
+                "pixiv_search_novel"
+                if normalized_type in {"novel", "小说"}
+                else "pixiv_search_illust"
+            )
+
             search_tool = None
             for tool in self.llm_tools:
-                if hasattr(tool, "name") and tool.name == "pixiv_search":
+                if hasattr(tool, "name") and tool.name == target_tool_name:
                     search_tool = tool
                     break
 
@@ -462,9 +465,7 @@ class PixivSearchPlugin(Star):
             mock_context = ContextWrapper(AstrAgentContext())
 
             # 调用搜索工具
-            result = await search_tool.call(
-                mock_context, query=query, search_type=search_type
-            )
+            result = await search_tool.call(mock_context, query=query)
 
             logger.info("Pixiv 插件：LLM搜索完成")
             return result

@@ -44,10 +44,13 @@ class RandomSearchService:
         self.global_execution_lock = asyncio.Lock()  # 全局执行锁
         self.task_queue = asyncio.Queue()  # 任务队列
         self.is_queue_processor_running = False  # 队列处理器运行状态
+        self._queue_processor_task: asyncio.Task | None = None
+        self._is_running = False
 
     def start(self):
         """启动后台任务"""
         if not self.scheduler.running:
+            self._is_running = True
             self.job = self.scheduler.add_job(
                 self._scheduler_tick,
                 "interval",
@@ -76,25 +79,41 @@ class RandomSearchService:
         except Exception as e:
             logger.error(f"加载调度时间失败: {e}")
 
-    def stop(self):
+    async def stop(self):
         """停止后台任务"""
+        self._is_running = False
         if self.scheduler.running:
             self.scheduler.shutdown()
-            # 注意：队列处理器会在服务停止时自动结束，因为它们是守护任务
-            self.is_queue_processor_running = False
             logger.info("Pixiv 随机搜索服务已停止。")
+
+        if self._queue_processor_task and not self._queue_processor_task.done():
+            self._queue_processor_task.cancel()
+            try:
+                await self._queue_processor_task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.error(f"等待随机搜索队列处理器停止时出错: {e}")
+        self._queue_processor_task = None
+        self.is_queue_processor_running = False
 
     async def _scheduler_tick(self):
         """
         检查是否有群组需要执行搜索，并将其加入队列。
         """
-        if not self.client:
+        if not self.client or not self._is_running:
             return
 
         try:
             # 启动队列处理器（如果尚未运行）
-            if not self.is_queue_processor_running:
-                asyncio.create_task(self._task_queue_processor())
+            if (
+                not self._queue_processor_task
+                or self._queue_processor_task.done()
+                or not self.is_queue_processor_running
+            ):
+                self._queue_processor_task = asyncio.create_task(
+                    self._task_queue_processor()
+                )
                 self.is_queue_processor_running = True
                 logger.info("RandomSearchService 队列处理器已启动")
 
@@ -153,56 +172,59 @@ class RandomSearchService:
         任务队列处理器，按顺序执行队列中的搜索任务。
         """
         logger.info("RandomSearchService 任务队列处理器开始运行")
+        try:
+            while self._is_running:
+                try:
+                    # 从队列中获取群组ID（阻塞等待）
+                    chat_id = await self.task_queue.get()
 
-        while True:
-            try:
-                # 从队列中获取群组ID（阻塞等待）
-                chat_id = await self.task_queue.get()
+                    # 使用全局锁确保同时只有一个任务执行
+                    async with self.global_execution_lock:
+                        # 再次检查群组是否仍在执行状态
+                        if self.execution_locks.get(chat_id, False):
+                            logger.warning(f"群组 {chat_id} 已在执行状态，跳过本次任务")
+                            self.task_queue.task_done()
+                            continue
 
-                # 使用全局锁确保同时只有一个任务执行
-                async with self.global_execution_lock:
-                    # 再次检查群组是否仍在执行状态
-                    if self.execution_locks.get(chat_id, False):
-                        logger.warning(f"群组 {chat_id} 已在执行状态，跳过本次任务")
-                        self.task_queue.task_done()
-                        continue
+                        # 设置执行锁
+                        self.execution_locks[chat_id] = True
 
-                    # 设置执行锁
-                    self.execution_locks[chat_id] = True
+                        try:
+                            logger.info(f"开始执行群组 {chat_id} 的随机搜索")
+                            await self.execute_search_for_group(chat_id)
 
-                    try:
-                        logger.info(f"开始执行群组 {chat_id} 的随机搜索")
-                        await self.execute_search_for_group(chat_id)
+                            # 调度下次运行
+                            now = datetime.now()
+                            min_interval = self.pixiv_config.random_search_min_interval
+                            max_interval = self.pixiv_config.random_search_max_interval
+                            # 基本验证确保 max >= min
+                            if max_interval < min_interval:
+                                max_interval = min_interval
 
-                        # 调度下次运行
-                        now = datetime.now()
-                        min_interval = self.pixiv_config.random_search_min_interval
-                        max_interval = self.pixiv_config.random_search_max_interval
-                        # 基本验证确保 max >= min
-                        if max_interval < min_interval:
-                            max_interval = min_interval
+                            next_interval = random.randint(min_interval, max_interval)
+                            new_execution_time = now + timedelta(minutes=next_interval)
+                            set_schedule_time(chat_id, new_execution_time)
+                            logger.info(
+                                f"群组 {chat_id}: 随机搜索已执行。下次运行在 {next_interval} 分钟后。"
+                            )
 
-                        next_interval = random.randint(min_interval, max_interval)
-                        new_execution_time = now + timedelta(minutes=next_interval)
-                        set_schedule_time(chat_id, new_execution_time)
-                        logger.info(
-                            f"群组 {chat_id}: 随机搜索已执行。下次运行在 {next_interval} 分钟后。"
-                        )
+                        except Exception as e:
+                            logger.error(f"执行群组 {chat_id} 的随机搜索时出错: {e}")
+                        finally:
+                            # 释放执行锁
+                            self.execution_locks[chat_id] = False
+                            self.task_queue.task_done()
 
-                    except Exception as e:
-                        logger.error(f"执行群组 {chat_id} 的随机搜索时出错: {e}")
-                    finally:
-                        # 释放执行锁
-                        self.execution_locks[chat_id] = False
-                        self.task_queue.task_done()
-
-            except asyncio.CancelledError:
-                logger.info("RandomSearchService 任务队列处理器被取消")
-                break
-            except Exception as e:
-                logger.error(f"RandomSearchService 任务队列处理器出错: {e}")
-                # 短暂延迟后继续处理下一个任务
-                await asyncio.sleep(5)
+                except asyncio.CancelledError:
+                    logger.info("RandomSearchService 任务队列处理器被取消")
+                    break
+                except Exception as e:
+                    logger.error(f"RandomSearchService 任务队列处理器出错: {e}")
+                    # 短暂延迟后继续处理下一个任务
+                    await asyncio.sleep(5)
+        finally:
+            self.is_queue_processor_running = False
+            self._queue_processor_task = None
 
     async def _cleanup_task(self):
         """定期清理过期记录的任务"""

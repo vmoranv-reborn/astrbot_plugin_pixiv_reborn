@@ -1,8 +1,8 @@
 import asyncio
 import aiohttp
 import aiofiles
-import base64
 import io
+import shutil
 import subprocess
 import uuid
 import zipfile
@@ -50,8 +50,14 @@ def get_proxied_image_url(original_url: str, use_proxy: bool = True) -> str:
     if not use_proxy or not original_url:
         return original_url
 
+    proxy_host = PIXIV_IMAGE_PROXY
+    if _config:
+        configured_host = str(getattr(_config, "image_proxy_host", "") or "").strip()
+        if configured_host:
+            proxy_host = configured_host
+
     if "i.pximg.net" in original_url:
-        return original_url.replace("i.pximg.net", PIXIV_IMAGE_PROXY)
+        return original_url.replace("i.pximg.net", proxy_host)
 
     return original_url
 
@@ -128,22 +134,28 @@ def build_ugoira_info_message(
 
 def _build_image_from_url(url: str) -> Optional[Image]:
     """
-    根据 URL 构建 Image 组件（不下载图片，直接通过 URL 发送）。
-仅当 image_send_method="url" 时可用，将反代后的 URL 直接传给 Image.fromURL()。
+        根据 URL 构建 Image 组件（不下载图片，直接通过 URL 发送）。
+    仅当 image_send_method="url" 时可用，将反代后的 URL 直接传给 Image.fromURL()。
 
 
-    Args:
-        url: 原始图片 URL
+        Args:
+            url: 原始图片 URL
 
-    Returns:
-        Image 组件，如果 URL 无效则返回 None
+        Returns:
+            Image 组件，如果 URL 无效则返回 None
     """
     if not url:
         return None
     # 如果没有配置代理，使用图片反代 URL
-    use_image_proxy = not (_config.proxy if _config else None)
+    use_image_proxy = (
+        bool(getattr(_config, "use_image_proxy", True))
+        if _config
+        else True
+    ) and not bool(_config.proxy if _config else None)
     actual_url = get_proxied_image_url(url, use_proxy=use_image_proxy)
-    if actual_url and (actual_url.startswith("http://") or actual_url.startswith("https://")):
+    if actual_url and (
+        actual_url.startswith("http://") or actual_url.startswith("https://")
+    ):
         return Image.fromURL(actual_url)
     return None
 
@@ -369,7 +381,11 @@ async def download_image(
         if headers:
             default_headers.update(headers)
         # 如果没有配置代理，使用图片反代 URL
-        use_image_proxy = not (_config.proxy if _config else None)
+        use_image_proxy = (
+            bool(getattr(_config, "use_image_proxy", True))
+            if _config
+            else True
+        ) and not bool(_config.proxy if _config else None)
         actual_url = get_proxied_image_url(url, use_proxy=use_image_proxy)
 
         # 添加超时控制
@@ -499,7 +515,9 @@ async def send_pixiv_image(
     # 检查是否为动图
     if hasattr(illust, "type") and illust.type == "ugoira":
         logger.info(f"Pixiv 插件：检测到动图作品 - ID: {illust.id}")
-        async for result in send_ugoira(client, event, illust, detail_message):
+        async for result in send_ugoira(
+            client, event, illust, detail_message, show_details=show_details
+        ):
             yield result
         return
 
@@ -562,9 +580,7 @@ async def send_pixiv_image(
                     if img_data:
                         img_comp = await _build_image_from_bytes(img_data)
                         if show_details and msg:
-                            yield event.chain_result(
-                                [img_comp, Plain(msg)]
-                            )
+                            yield event.chain_result([img_comp, Plain(msg)])
                         else:
                             yield event.chain_result([img_comp])
 
@@ -584,7 +600,11 @@ async def send_pixiv_image(
 
 
 async def send_ugoira(
-    client: AppPixivAPI, event: Any, illust, detail_message: str = None
+    client: AppPixivAPI,
+    event: Any,
+    illust,
+    detail_message: str = None,
+    show_details: bool = True,
 ):
     """
     处理动图（ugoira）的下载和发送，优先转换为GIF格式
@@ -609,43 +629,10 @@ async def send_ugoira(
                 logger.info(f"Pixiv 插件：使用标准Image组件发送GIF - ID: {illust.id}")
 
                 gif_comp = await _build_image_from_bytes(gif_data, ext=".gif")
-                yield event.chain_result(
-                    [gif_comp, Plain(ugoira_info)]
-                )
-
-                # 2. 如果是群聊，再尝试上传为群文件
-                if (
-                    _config.image_send_method == "file"
-                    and event.get_platform_name() == "aiocqhttp"
-                    and event.get_group_id()
-                ):
-                    try:
-                        from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
-                            AiocqhttpMessageEvent,
-                        )
-
-                        if isinstance(event, AiocqhttpMessageEvent):
-                            client_bot = event.bot
-                            group_id = event.get_group_id()
-                            safe_title = generate_safe_filename(illust.title, "ugoira")
-                            file_name = f"{safe_title}_{illust.id}.gif"
-
-                            # 使用已有的GIF数据转换为Base64
-                            gif_base64 = base64.b64encode(gif_data).decode("utf-8")
-                            base64_uri = f"base64://{gif_base64}"
-
-                            logger.info(
-                                f"Pixiv 插件：尝试上传GIF到群文件 {file_name} - ID: {illust.id}"
-                            )
-                            await client_bot.upload_group_file(
-                                group_id=group_id, file=base64_uri, name=file_name
-                            )
-                            logger.info(
-                                f"Pixiv 插件：成功上传GIF到群文件 - ID: {illust.id}"
-                            )
-                    except Exception as e:
-                        logger.error(f"Pixiv 插件：上传群文件失败 - {e}")
-                        # 群文件上传失败不影响主流程，不显示错误给用户
+                chain_content = [gif_comp]
+                if show_details and ugoira_info:
+                    chain_content.append(Plain(ugoira_info))
+                yield event.chain_result(chain_content)
 
                 logger.info(f"Pixiv 插件：动图GIF发送完成 - ID: {illust.id}")
             else:
@@ -795,6 +782,12 @@ async def _convert_ugoira_to_gif(zip_data, metadata, safe_title, illust_id):
     except Exception as e:
         logger.error(f"Pixiv 插件：转换动图为GIF时发生错误 - {e}")
         return None
+    finally:
+        if temp_dir:
+            try:
+                await asyncio.to_thread(shutil.rmtree, temp_dir, True)
+            except Exception as e:
+                logger.warning(f"Pixiv 插件：清理动图临时目录失败 - {e}")
 
 
 async def send_forward_message(
@@ -827,7 +820,9 @@ async def send_forward_message(
                         gif_data = content["gif_data"]
                         ugoira_info = content["ugoira_info"]
                         gif_comp = await _build_image_from_bytes(gif_data, ext=".gif")
-                        node_content = [gif_comp, Plain(ugoira_info)]
+                        node_content = [gif_comp]
+                        if _config.show_details and ugoira_info:
+                            node_content.append(Plain(ugoira_info))
                     else:
                         node_content = [Plain("动图处理失败")]
                 else:

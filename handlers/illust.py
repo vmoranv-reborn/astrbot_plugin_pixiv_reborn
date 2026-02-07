@@ -33,7 +33,10 @@ class IllustHandler:
         cleaned_tags = tags.strip()
 
         if cleaned_tags.lower() == "help":
-            yield self.pixiv_help(event)
+            help_text = get_help_message(
+                "pixiv_help", "帮助消息加载失败，请检查配置文件。"
+            )
+            yield event.plain_result(help_text)
             return
 
         if not cleaned_tags:

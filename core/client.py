@@ -8,6 +8,7 @@ class PixivClientWrapper:
 
     def __init__(self, pixiv_config):
         self.pixiv_config = pixiv_config
+        self._refresh_task: asyncio.Task | None = None
 
         # 根据是否配置代理选择不同的 API 客户端
         if pixiv_config.proxy:
@@ -89,15 +90,33 @@ class PixivClientWrapper:
 
                 logger.error(traceback.format_exc())
 
-    async def start_refresh_task(self):
-        # 启动后台刷新任务
-        if self.pixiv_config.refresh_interval > 0:
-            self._refresh_task = asyncio.create_task(self.periodic_token_refresh())
-            logger.info(
-                f"Pixiv 插件：已启动 Refresh Token 自动刷新任务，间隔 {self.pixiv_config.refresh_interval} 分钟。"
-            )
-        else:
+    def start_refresh_task(self) -> asyncio.Task | None:
+        """启动后台刷新任务并返回任务句柄（若已启动则复用原任务）。"""
+        if self.pixiv_config.refresh_interval <= 0:
             logger.info("Pixiv 插件：Refresh Token 自动刷新已禁用。")
+            return None
+
+        if self._refresh_task and not self._refresh_task.done():
+            return self._refresh_task
+
+        self._refresh_task = asyncio.create_task(self.periodic_token_refresh())
+        logger.info(
+            f"Pixiv 插件：已启动 Refresh Token 自动刷新任务，间隔 {self.pixiv_config.refresh_interval} 分钟。"
+        )
+        return self._refresh_task
+
+    async def stop_refresh_task(self) -> None:
+        """停止后台刷新任务。"""
+        if not self._refresh_task or self._refresh_task.done():
+            return
+
+        self._refresh_task.cancel()
+        try:
+            await self._refresh_task
+        except asyncio.CancelledError:
+            logger.info("Pixiv Token 刷新任务已成功取消。")
+        except Exception as e:
+            logger.error(f"等待 Pixiv Token 刷新任务取消时发生错误: {e}")
 
     async def call_pixiv_api(self, func, *args, **kwargs):
         """异步调用 Pixiv API 的辅助方法"""

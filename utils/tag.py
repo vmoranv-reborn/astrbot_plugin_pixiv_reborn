@@ -350,7 +350,9 @@ async def process_and_send_illusts(
         if config.show_filter_result:
             # 如果显示过滤结果，但过滤消息为空，发送一个默认消息
             if not filter_msgs:
-                yield _wrap_result(event.plain_result("筛选后没有符合条件的作品可发送。"), [])
+                yield _wrap_result(
+                    event.plain_result("筛选后没有符合条件的作品可发送。"), []
+                )
         else:
             # 如果不显示过滤结果，直接发送一个简单的提示消息
             yield _wrap_result(event.plain_result("没有找到符合条件的作品。"), [])
