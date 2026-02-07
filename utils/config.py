@@ -90,7 +90,7 @@ class PixivConfig:
         self.show_details = self.config.get("show_details", True)
         self.deep_search_depth = self.config.get("deep_search_depth", 3)
         self.forward_threshold = self.config.get("forward_threshold", False)
-        self.is_fromfilesystem = self.config.get("is_fromfilesystem", False)
+        self.image_send_method = self.config.get("image_send_method", "url")
         self.image_quality = self.config.get("image_quality", "original")
         self.refresh_interval = self.config.get("refresh_token_interval_minutes", 180)
         self.subscription_enabled = self.config.get("subscription_enabled", True)
@@ -165,7 +165,10 @@ class PixivConfigManager:
             },
             "subscription_enabled": {"type": "bool"},
             # 隐藏的配置项，不显示给用户但仍然可以设置
-            "is_fromfilesystem": {"type": "bool", "hidden": True},
+            "image_send_method": {
+                "type": "enum",
+                "choices": ["url", "file", "byte"],
+            },
             "refresh_token_interval_minutes": {
                 "type": "int",
                 "min": 0,
@@ -205,6 +208,7 @@ class PixivConfigManager:
             "deep_search_depth",
             "forward_threshold",
             "image_quality",
+            "image_send_method",
             "subscription_enabled",
             "random_search_min_interval",
             "random_search_max_interval",

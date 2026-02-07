@@ -3,6 +3,7 @@ import aiohttp
 import aiofiles
 import base64
 import subprocess
+import uuid
 import zipfile
 import tempfile
 from pathlib import Path
@@ -117,6 +118,55 @@ def build_ugoira_info_message(
     ugoira_info += f"作品链接: https://www.pixiv.net/artworks/{illust.id}\n\n"
 
     return ugoira_info
+
+
+def _build_image_from_url(url: str) -> Optional[Image]:
+    """
+    根据 URL 构建 Image 组件（不下载图片，直接通过 URL 发送）。
+仅当 image_send_method="url" 时可用，将反代后的 URL 直接传给 Image.fromURL()。
+
+
+    Args:
+        url: 原始图片 URL
+
+    Returns:
+        Image 组件，如果 URL 无效则返回 None
+    """
+    if not url:
+        return None
+    # 如果没有配置代理，使用图片反代 URL
+    use_image_proxy = not (_config.proxy if _config else None)
+    actual_url = get_proxied_image_url(url, use_proxy=use_image_proxy)
+    if actual_url and (actual_url.startswith("http://") or actual_url.startswith("https://")):
+        return Image.fromURL(actual_url)
+    return None
+
+
+async def _build_image_from_bytes(img_data: bytes, ext: str = ".jpg") -> Image:
+    """
+    根据 image_send_method 配置，从字节数据构建 Image 组件。
+
+    - image_send_method="file": 将图片字节写入临时文件，使用 Image.fromFileSystem() 发送（file:/// 协议）
+    - image_send_method="byte": 使用 Image.fromBytes() 发送（base64:// 协议）
+
+    Args:
+        img_data: 图片字节数据
+        ext: 文件扩展名，默认 ".jpg"
+
+    Returns:
+        构建好的 Image 组件
+    """
+    if _config and _config.image_send_method == "file" and _temp_dir:
+        # 写入临时文件，通过文件路径发送
+        file_name = f"pixiv_{uuid.uuid4().hex}{ext}"
+        file_path = Path(_temp_dir) / file_name
+        async with aiofiles.open(file_path, "wb") as f:
+            await f.write(img_data)
+        logger.debug(f"Pixiv 插件：使用文件路径发送图片 - {file_path}")
+        return Image.fromFileSystem(str(file_path))
+    else:
+        # 直接使用 base64 发送
+        return Image.fromBytes(img_data)
 
 
 async def download_image(
@@ -306,16 +356,28 @@ async def send_pixiv_image(
 
             logger.info(f"Pixiv 插件：尝试发送图片，质量: {quality}, URL: {image_url}")
             try:
+                # 优先尝试 URL 直接发送（不需要下载，节省内存和时间）
+                if _config.image_send_method == "url":
+                    img_comp = _build_image_from_url(image_url)
+                    if img_comp:
+                        if show_details and msg:
+                            yield event.chain_result([img_comp, Plain(msg)])
+                        else:
+                            yield event.chain_result([img_comp])
+                        image_sent_for_source = True
+                        break
+
+                # URL 发送不可用或配置为文件发送，则下载后发送
                 async with aiohttp.ClientSession() as session:
                     img_data = await download_image(session, image_url)
                     if img_data:
-                        # 直接使用字节数据发送图片，避免文件系统路径问题
+                        img_comp = await _build_image_from_bytes(img_data)
                         if show_details and msg:
                             yield event.chain_result(
-                                [Image.fromBytes(img_data), Plain(msg)]
+                                [img_comp, Plain(msg)]
                             )
                         else:
-                            yield event.chain_result([Image.fromBytes(img_data)])
+                            yield event.chain_result([img_comp])
 
                         image_sent_for_source = True
                         break  # 此源成功，移动到下一个源
@@ -357,13 +419,14 @@ async def send_ugoira(
                 # 1. 先尝试使用标准Image组件发送GIF
                 logger.info(f"Pixiv 插件：使用标准Image组件发送GIF - ID: {illust.id}")
 
+                gif_comp = await _build_image_from_bytes(gif_data, ext=".gif")
                 yield event.chain_result(
-                    [Image.fromBytes(gif_data), Plain(ugoira_info)]
+                    [gif_comp, Plain(ugoira_info)]
                 )
 
                 # 2. 如果是群聊，再尝试上传为群文件
                 if (
-                    _config.is_fromfilesystem
+                    _config.image_send_method == "file"
                     and event.get_platform_name() == "aiocqhttp"
                     and event.get_group_id()
                 ):
@@ -574,7 +637,8 @@ async def send_forward_message(
                         # 成功获取到GIF内容
                         gif_data = content["gif_data"]
                         ugoira_info = content["ugoira_info"]
-                        node_content = [Image.fromBytes(gif_data), Plain(ugoira_info)]
+                        gif_comp = await _build_image_from_bytes(gif_data, ext=".gif")
+                        node_content = [gif_comp, Plain(ugoira_info)]
                     else:
                         node_content = [Plain("动图处理失败")]
                 else:
@@ -627,7 +691,8 @@ async def send_forward_message(
                         img_data = await download_image(session, image_url, headers)
                         if img_data:
                             # 直接使用字节数据发送图片，避免文件系统路径问题
-                            node_content.append(Image.fromBytes(img_data))
+                            img_comp = await _build_image_from_bytes(img_data)
+                            node_content.append(img_comp)
                             image_sent = True
                             break  # 成功下载，跳出质量循环
                         else:
