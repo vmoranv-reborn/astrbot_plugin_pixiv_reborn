@@ -36,6 +36,7 @@ class SubscribeHandler:
 
         sub_type = "artist"
         target_name = artist_id
+        latest_illust_id = 0
 
         try:
             if not await self.client_wrapper.authenticate():
@@ -50,7 +51,6 @@ class SubscribeHandler:
                 target_name = user_detail.user.name
 
             # 获取画师最新作品ID作为初始值
-            latest_illust_id = 0
             try:
                 user_illusts = await self.client_wrapper.call_pixiv_api(
                     self.client.user_illusts, int(artist_id)

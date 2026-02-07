@@ -489,7 +489,9 @@ def get_schedule_time(chat_id: str) -> datetime:
             RandomSearchSchedule.chat_id == chat_id
         )
         if schedule:
-            normalized_time = _coerce_schedule_time(schedule.next_execution_time, chat_id)
+            normalized_time = _coerce_schedule_time(
+                schedule.next_execution_time, chat_id
+            )
             if normalized_time is None:
                 logger.warning(f"群组 {chat_id} 的调度时间无效，将重新调度。")
                 return None
@@ -557,7 +559,9 @@ def get_all_schedule_times() -> dict:
         schedule_map = {}
         for schedule in schedules:
             chat_id = schedule.chat_id
-            normalized_time = _coerce_schedule_time(schedule.next_execution_time, chat_id)
+            normalized_time = _coerce_schedule_time(
+                schedule.next_execution_time, chat_id
+            )
             if normalized_time is None:
                 logger.warning(f"群组 {chat_id} 的调度时间无效，已跳过该记录。")
                 continue

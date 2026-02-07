@@ -1,4 +1,5 @@
 import os
+import shutil
 import asyncio
 from astrbot.api import logger
 from pathlib import Path
@@ -19,33 +20,37 @@ async def clean_temp_dir(temp_dir: Path, max_files: int = 20) -> None:
 
     try:
         # 使用 asyncio.to_thread 进行异步文件操作
-        files = await asyncio.to_thread(_get_temp_files, temp_dir)
+        entries = await asyncio.to_thread(_get_temp_entries, temp_dir)
 
-        if len(files) > max_files:
+        if len(entries) > max_files:
             # 按创建时间排序，删除最旧的文件
-            files_to_delete = await asyncio.to_thread(_sort_files_by_ctime, files)
-            num_to_delete = len(files_to_delete) - max_files
+            entries_to_delete = await asyncio.to_thread(_sort_files_by_ctime, entries)
+            num_to_delete = len(entries_to_delete) - max_files
 
             for i in range(num_to_delete):
+                target = entries_to_delete[i]
                 try:
-                    await asyncio.to_thread(os.remove, files_to_delete[i])
-                    logger.debug(f"[PixivPlugin] 已删除临时文件: {files_to_delete[i]}")
+                    if os.path.isdir(target):
+                        await asyncio.to_thread(shutil.rmtree, target, True)
+                    else:
+                        await asyncio.to_thread(os.remove, target)
+                    logger.debug(f"[PixivPlugin] 已删除临时项: {target}")
                 except OSError as e:
                     logger.warning(
-                        f"[PixivPlugin] 删除临时图片失败: {files_to_delete[i]}，原因: {e}"
+                        f"[PixivPlugin] 删除临时项失败: {target}，原因: {e}"
                     )
 
             logger.info(
-                f"[PixivPlugin] 临时目录清理完成，删除了 {num_to_delete} 个文件"
+                f"[PixivPlugin] 临时目录清理完成，删除了 {num_to_delete} 个条目"
             )
 
     except Exception as e:
         logger.error(f"[PixivPlugin] 清理临时目录时发生错误: {e}", exc_info=True)
 
 
-def _get_temp_files(temp_dir: Path) -> list[str]:
-    """获取临时目录中的所有文件路径"""
-    return [str(f) for f in temp_dir.iterdir() if f.is_file()]
+def _get_temp_entries(temp_dir: Path) -> list[str]:
+    """获取临时目录中的所有条目路径（文件和目录）。"""
+    return [str(f) for f in temp_dir.iterdir()]
 
 
 def _sort_files_by_ctime(files: list[str]) -> list[str]:

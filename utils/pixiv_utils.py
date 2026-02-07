@@ -2,6 +2,7 @@ import asyncio
 import aiohttp
 import aiofiles
 import io
+import shutil
 import subprocess
 import uuid
 import zipfile
@@ -49,8 +50,14 @@ def get_proxied_image_url(original_url: str, use_proxy: bool = True) -> str:
     if not use_proxy or not original_url:
         return original_url
 
+    proxy_host = PIXIV_IMAGE_PROXY
+    if _config:
+        configured_host = str(getattr(_config, "image_proxy_host", "") or "").strip()
+        if configured_host:
+            proxy_host = configured_host
+
     if "i.pximg.net" in original_url:
-        return original_url.replace("i.pximg.net", PIXIV_IMAGE_PROXY)
+        return original_url.replace("i.pximg.net", proxy_host)
 
     return original_url
 
@@ -127,22 +134,28 @@ def build_ugoira_info_message(
 
 def _build_image_from_url(url: str) -> Optional[Image]:
     """
-    根据 URL 构建 Image 组件（不下载图片，直接通过 URL 发送）。
-仅当 image_send_method="url" 时可用，将反代后的 URL 直接传给 Image.fromURL()。
+        根据 URL 构建 Image 组件（不下载图片，直接通过 URL 发送）。
+    仅当 image_send_method="url" 时可用，将反代后的 URL 直接传给 Image.fromURL()。
 
 
-    Args:
-        url: 原始图片 URL
+        Args:
+            url: 原始图片 URL
 
-    Returns:
-        Image 组件，如果 URL 无效则返回 None
+        Returns:
+            Image 组件，如果 URL 无效则返回 None
     """
     if not url:
         return None
     # 如果没有配置代理，使用图片反代 URL
-    use_image_proxy = not (_config.proxy if _config else None)
+    use_image_proxy = (
+        bool(getattr(_config, "use_image_proxy", True))
+        if _config
+        else True
+    ) and not bool(_config.proxy if _config else None)
     actual_url = get_proxied_image_url(url, use_proxy=use_image_proxy)
-    if actual_url and (actual_url.startswith("http://") or actual_url.startswith("https://")):
+    if actual_url and (
+        actual_url.startswith("http://") or actual_url.startswith("https://")
+    ):
         return Image.fromURL(actual_url)
     return None
 
@@ -368,7 +381,11 @@ async def download_image(
         if headers:
             default_headers.update(headers)
         # 如果没有配置代理，使用图片反代 URL
-        use_image_proxy = not (_config.proxy if _config else None)
+        use_image_proxy = (
+            bool(getattr(_config, "use_image_proxy", True))
+            if _config
+            else True
+        ) and not bool(_config.proxy if _config else None)
         actual_url = get_proxied_image_url(url, use_proxy=use_image_proxy)
 
         # 添加超时控制
@@ -563,9 +580,7 @@ async def send_pixiv_image(
                     if img_data:
                         img_comp = await _build_image_from_bytes(img_data)
                         if show_details and msg:
-                            yield event.chain_result(
-                                [img_comp, Plain(msg)]
-                            )
+                            yield event.chain_result([img_comp, Plain(msg)])
                         else:
                             yield event.chain_result([img_comp])
 
@@ -767,6 +782,12 @@ async def _convert_ugoira_to_gif(zip_data, metadata, safe_title, illust_id):
     except Exception as e:
         logger.error(f"Pixiv 插件：转换动图为GIF时发生错误 - {e}")
         return None
+    finally:
+        if temp_dir:
+            try:
+                await asyncio.to_thread(shutil.rmtree, temp_dir, True)
+            except Exception as e:
+                logger.warning(f"Pixiv 插件：清理动图临时目录失败 - {e}")
 
 
 async def send_forward_message(
