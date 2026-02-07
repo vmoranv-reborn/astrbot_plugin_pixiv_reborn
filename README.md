@@ -194,6 +194,8 @@
 | `forward_threshold` | 是否启用消息转发功能 | false |
 | `show_filter_result` | 是否显示过滤内容提示 | true |
 | `image_quality` | 默认发送的图片质量 (original/large/medium) | medium |
+| `pil_compress_quality` | 本地 PIL 压缩百分比(1-100，仅file/byte生效，100为不压缩) | 100 |
+| `pil_compress_target_kb` | 本地 PIL 目标大小KB(>0优先按大小压缩，仅file/byte生效) | 0 |
 | `is_fromfilesystem` | 是否通过文件转发 | false |
 | `refresh_token_interval_minutes` | 自动刷新 Refresh Token 的间隔时间（分钟） | 180 |
 | `subscription_enabled` | 是否启用订阅功能 | true |

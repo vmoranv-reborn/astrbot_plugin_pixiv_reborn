@@ -5,3 +5,4 @@ peewee>=3.14.0
 apscheduler>=3.9.0
 fpdf2>=2.7.0
 aiofiles>=22.1.0
+Pillow>=10.0.0

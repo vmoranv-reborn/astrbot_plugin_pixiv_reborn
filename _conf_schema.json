@@ -74,11 +74,32 @@
           "medium"
       ]
   },
-  "is_fromfilesystem": {
-    "description": "是否通过文件转发",
-    "type": "bool",
-    "hint": "转发图片是否走文件转发,默认为true,如果图片过大,可能会导致内存不足,请设置为false",
-    "default": false
+  "image_send_method": {
+    "description": "图片发送方式",
+    "type": "string",
+    "hint": "选择图片发送方式：'url' (直接通过URL发送，不下载，最快), 'file' (下载后通过文件路径发送), 'byte' (下载后通过base64发送)",
+    "default": "url",
+    "options": [
+        "url",
+        "file",
+        "byte"
+    ]
+  },
+  "pil_compress_quality": {
+      "description": "本地PIL压缩画质百分比",
+      "type": "int",
+      "hint": "仅在 image_send_method=file/byte 时生效。范围 1-100；100 表示不按百分比压缩。",
+      "default": 100,
+      "min": 1,
+      "max": 100
+  },
+  "pil_compress_target_kb": {
+      "description": "本地PIL压缩目标文件大小(KB)",
+      "type": "int",
+      "hint": "仅在 image_send_method=file/byte 时生效。>0 时优先按目标大小压缩；0 表示关闭按大小压缩。",
+      "default": 0,
+      "min": 0,
+      "max": 20480
   },
   "refresh_token_interval_minutes": {
       "description": "自动刷新 Refresh Token 的间隔时间（分钟）",

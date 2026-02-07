@@ -2,7 +2,9 @@ import asyncio
 import aiohttp
 import aiofiles
 import base64
+import io
 import subprocess
+import uuid
 import zipfile
 import tempfile
 from pathlib import Path
@@ -14,6 +16,11 @@ from pixivpy3 import AppPixivAPI
 from .config import PixivConfig
 from .tag import filter_illusts_with_reason, FilterConfig
 from .config import smart_clean_temp_dir, clean_temp_dir
+
+try:
+    from PIL import Image as PILImage
+except Exception:
+    PILImage = None
 
 
 # 全局变量，需要在模块初始化时设置
@@ -117,6 +124,238 @@ def build_ugoira_info_message(
     ugoira_info += f"作品链接: https://www.pixiv.net/artworks/{illust.id}\n\n"
 
     return ugoira_info
+
+
+def _build_image_from_url(url: str) -> Optional[Image]:
+    """
+    根据 URL 构建 Image 组件（不下载图片，直接通过 URL 发送）。
+仅当 image_send_method="url" 时可用，将反代后的 URL 直接传给 Image.fromURL()。
+
+
+    Args:
+        url: 原始图片 URL
+
+    Returns:
+        Image 组件，如果 URL 无效则返回 None
+    """
+    if not url:
+        return None
+    # 如果没有配置代理，使用图片反代 URL
+    use_image_proxy = not (_config.proxy if _config else None)
+    actual_url = get_proxied_image_url(url, use_proxy=use_image_proxy)
+    if actual_url and (actual_url.startswith("http://") or actual_url.startswith("https://")):
+        return Image.fromURL(actual_url)
+    return None
+
+
+def _normalize_pil_quality(raw_quality: Any) -> int:
+    """将配置中的压缩质量标准化到 1-100。"""
+    try:
+        q = int(raw_quality)
+    except Exception:
+        q = 100
+    return max(1, min(100, q))
+
+
+def _normalize_target_kb(raw_target_kb: Any) -> int:
+    """将配置中的目标大小标准化为非负整数（KB）。"""
+    try:
+        kb = int(raw_target_kb)
+    except Exception:
+        kb = 0
+    return max(0, kb)
+
+
+def _should_local_pil_compress(ext: str = ".jpg") -> bool:
+    """
+    是否需要在本地进行 PIL 压缩。
+    仅在 file/byte 发送方式下生效，且不处理 GIF。
+    """
+    if not _config:
+        return False
+    if _config.image_send_method not in ("file", "byte"):
+        return False
+    if str(ext).lower() == ".gif":
+        return False
+
+    quality = _normalize_pil_quality(getattr(_config, "pil_compress_quality", 100))
+    target_kb = _normalize_target_kb(getattr(_config, "pil_compress_target_kb", 0))
+    return quality < 100 or target_kb > 0
+
+
+def _jpeg_ready_image(img):
+    """将图片转换为适合 JPEG 保存的模式。"""
+    if img.mode in ("RGBA", "LA"):
+        background = PILImage.new("RGB", img.size, (255, 255, 255))
+        alpha = img.split()[-1]
+        background.paste(img.convert("RGBA"), mask=alpha)
+        return background
+    if img.mode == "P":
+        return img.convert("RGB")
+    if img.mode != "RGB":
+        return img.convert("RGB")
+    return img
+
+
+def _save_with_quality(img, fmt: str, quality: int) -> bytes:
+    """
+    按指定质量保存图片到内存字节。
+    - JPEG/WEBP 使用 quality
+    - PNG 用调色板量化近似“质量”控制
+    """
+    quality = max(1, min(100, int(quality)))
+    fmt = (fmt or "").upper()
+
+    with io.BytesIO() as buf:
+        if fmt in ("JPEG", "JPG"):
+            jpeg_img = _jpeg_ready_image(img)
+            jpeg_img.save(
+                buf, format="JPEG", quality=quality, optimize=True, progressive=True
+            )
+        elif fmt == "WEBP":
+            img.save(buf, format="WEBP", quality=quality, method=6)
+        elif fmt == "PNG":
+            if quality < 100:
+                colors = max(16, int(256 * quality / 100))
+                png_img = img
+                if png_img.mode not in ("RGB", "RGBA", "P", "L"):
+                    png_img = png_img.convert("RGBA")
+                png_img = png_img.convert("RGBA").quantize(colors=colors)
+                png_img.save(buf, format="PNG", optimize=True)
+            else:
+                img.save(buf, format="PNG", optimize=True, compress_level=9)
+        else:
+            # 未知格式回退到 JPEG
+            jpeg_img = _jpeg_ready_image(img)
+            jpeg_img.save(
+                buf, format="JPEG", quality=quality, optimize=True, progressive=True
+            )
+        return buf.getvalue()
+
+
+def _compress_image_with_pil_sync(
+    img_data: bytes, quality: int = 100, target_kb: int = 0
+) -> bytes:
+    """
+    同步压缩图片字节：
+    - target_kb > 0 时优先按目标大小压缩
+    - 否则按 quality 百分比压缩
+    """
+    if not PILImage:
+        return img_data
+
+    try:
+        with io.BytesIO(img_data) as input_buf:
+            with PILImage.open(input_buf) as img:
+                src_fmt = (img.format or "").upper()
+                if src_fmt == "GIF":
+                    return img_data
+
+                quality = max(1, min(100, int(quality)))
+                target_kb = max(0, int(target_kb))
+
+                # 按目标大小压缩（优先）
+                if target_kb > 0:
+                    target_bytes = target_kb * 1024
+                    if len(img_data) <= target_bytes and quality >= 100:
+                        return img_data
+
+                    if src_fmt in ("JPEG", "JPG", "WEBP", ""):
+                        # 二分搜索质量，尽量接近 target 且保持较高质量
+                        low, high = 10, quality
+                        best = None
+                        while low <= high:
+                            mid = (low + high) // 2
+                            candidate = _save_with_quality(img, src_fmt, mid)
+                            if len(candidate) <= target_bytes:
+                                best = candidate
+                                low = mid + 1
+                            else:
+                                high = mid - 1
+                        if best:
+                            return best
+                        fallback = _save_with_quality(img, src_fmt, 10)
+                        return fallback if len(fallback) < len(img_data) else img_data
+
+                    # PNG 等格式：逐步降低“质量”近似值
+                    best = None
+                    for q in [100, 90, 80, 70, 60, 50, 40, 30, 20]:
+                        q = min(q, quality)
+                        candidate = _save_with_quality(img, src_fmt, q)
+                        if len(candidate) <= target_bytes:
+                            best = candidate
+                            break
+                    if best:
+                        return best
+                    fallback = _save_with_quality(img, src_fmt, max(20, quality // 2))
+                    return fallback if len(fallback) < len(img_data) else img_data
+
+                # 按质量压缩
+                if quality >= 100:
+                    return img_data
+                candidate = _save_with_quality(img, src_fmt, quality)
+                return candidate if len(candidate) < len(img_data) else img_data
+    except Exception:
+        return img_data
+
+
+async def _maybe_compress_image_with_pil(img_data: bytes, ext: str = ".jpg") -> bytes:
+    """
+    根据配置尝试使用本地 PIL 压缩图片字节，失败时自动回退原图。
+    """
+    if not _should_local_pil_compress(ext):
+        return img_data
+
+    if not PILImage:
+        logger.warning("Pixiv 插件：未安装 Pillow，跳过本地 PIL 压缩。")
+        return img_data
+
+    quality = _normalize_pil_quality(getattr(_config, "pil_compress_quality", 100))
+    target_kb = _normalize_target_kb(getattr(_config, "pil_compress_target_kb", 0))
+
+    try:
+        compressed = await asyncio.to_thread(
+            _compress_image_with_pil_sync, img_data, quality, target_kb
+        )
+        if len(compressed) < len(img_data):
+            logger.info(
+                f"Pixiv 插件：本地PIL压缩生效，{len(img_data) // 1024}KB -> {len(compressed) // 1024}KB"
+            )
+        return compressed
+    except Exception as e:
+        logger.warning(f"Pixiv 插件：本地PIL压缩失败，使用原图 - {e}")
+        return img_data
+
+
+async def _build_image_from_bytes(img_data: bytes, ext: str = ".jpg") -> Image:
+    """
+    根据 image_send_method 配置，从字节数据构建 Image 组件。
+
+    - image_send_method="file": 将图片字节写入临时文件，使用 Image.fromFileSystem() 发送（file:/// 协议）
+    - image_send_method="byte": 使用 Image.fromBytes() 发送（base64:// 协议）
+
+    Args:
+        img_data: 图片字节数据
+        ext: 文件扩展名，默认 ".jpg"
+
+    Returns:
+        构建好的 Image 组件
+    """
+    # 仅在 file/byte 路径中按配置启用本地 PIL 压缩
+    if _config and _config.image_send_method in ("file", "byte"):
+        img_data = await _maybe_compress_image_with_pil(img_data, ext=ext)
+
+    if _config and _config.image_send_method == "file" and _temp_dir:
+        # 写入临时文件，通过文件路径发送
+        file_name = f"pixiv_{uuid.uuid4().hex}{ext}"
+        file_path = Path(_temp_dir) / file_name
+        async with aiofiles.open(file_path, "wb") as f:
+            await f.write(img_data)
+        logger.debug(f"Pixiv 插件：使用文件路径发送图片 - {file_path}")
+        return Image.fromFileSystem(str(file_path))
+    else:
+        # 直接使用 base64 发送
+        return Image.fromBytes(img_data)
 
 
 async def download_image(
@@ -306,16 +545,28 @@ async def send_pixiv_image(
 
             logger.info(f"Pixiv 插件：尝试发送图片，质量: {quality}, URL: {image_url}")
             try:
+                # 优先尝试 URL 直接发送（不需要下载，节省内存和时间）
+                if _config.image_send_method == "url":
+                    img_comp = _build_image_from_url(image_url)
+                    if img_comp:
+                        if show_details and msg:
+                            yield event.chain_result([img_comp, Plain(msg)])
+                        else:
+                            yield event.chain_result([img_comp])
+                        image_sent_for_source = True
+                        break
+
+                # URL 发送不可用或配置为文件发送，则下载后发送
                 async with aiohttp.ClientSession() as session:
                     img_data = await download_image(session, image_url)
                     if img_data:
-                        # 直接使用字节数据发送图片，避免文件系统路径问题
+                        img_comp = await _build_image_from_bytes(img_data)
                         if show_details and msg:
                             yield event.chain_result(
-                                [Image.fromBytes(img_data), Plain(msg)]
+                                [img_comp, Plain(msg)]
                             )
                         else:
-                            yield event.chain_result([Image.fromBytes(img_data)])
+                            yield event.chain_result([img_comp])
 
                         image_sent_for_source = True
                         break  # 此源成功，移动到下一个源
@@ -357,13 +608,14 @@ async def send_ugoira(
                 # 1. 先尝试使用标准Image组件发送GIF
                 logger.info(f"Pixiv 插件：使用标准Image组件发送GIF - ID: {illust.id}")
 
+                gif_comp = await _build_image_from_bytes(gif_data, ext=".gif")
                 yield event.chain_result(
-                    [Image.fromBytes(gif_data), Plain(ugoira_info)]
+                    [gif_comp, Plain(ugoira_info)]
                 )
 
                 # 2. 如果是群聊，再尝试上传为群文件
                 if (
-                    _config.is_fromfilesystem
+                    _config.image_send_method == "file"
                     and event.get_platform_name() == "aiocqhttp"
                     and event.get_group_id()
                 ):
@@ -574,7 +826,8 @@ async def send_forward_message(
                         # 成功获取到GIF内容
                         gif_data = content["gif_data"]
                         ugoira_info = content["ugoira_info"]
-                        node_content = [Image.fromBytes(gif_data), Plain(ugoira_info)]
+                        gif_comp = await _build_image_from_bytes(gif_data, ext=".gif")
+                        node_content = [gif_comp, Plain(ugoira_info)]
                     else:
                         node_content = [Plain("动图处理失败")]
                 else:
@@ -627,7 +880,8 @@ async def send_forward_message(
                         img_data = await download_image(session, image_url, headers)
                         if img_data:
                             # 直接使用字节数据发送图片，避免文件系统路径问题
-                            node_content.append(Image.fromBytes(img_data))
+                            img_comp = await _build_image_from_bytes(img_data)
+                            node_content.append(img_comp)
                             image_sent = True
                             break  # 成功下载，跳出质量循环
                         else:

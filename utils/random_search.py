@@ -383,6 +383,7 @@ class RandomSearchService:
                 send_pixiv_image,
                 send_forward_message,
                 is_novel=False,
+                include_related_ids=True,
             ):
                 if message_content:
                     logger.info(f"准备向 session_id: {session_id} 发送消息")
@@ -512,6 +513,7 @@ class RandomSearchService:
                 send_pixiv_image,
                 send_forward_message,
                 is_novel=False,
+                include_related_ids=True,
             ):
                 if message_content:
                     try:

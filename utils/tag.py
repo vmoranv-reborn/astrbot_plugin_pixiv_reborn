@@ -297,6 +297,7 @@ async def process_and_send_illusts(
     send_pixiv_image_func,
     send_forward_message_func,
     is_novel=False,
+    include_related_ids=False,
 ):
     """
     统一处理作品过滤和发送的逻辑
@@ -312,7 +313,9 @@ async def process_and_send_illusts(
         is_novel: 是否为小说（默认为False）
 
     Returns:
-        AsyncGenerator: 生成发送结果 (message_content, related_illust_ids)
+        AsyncGenerator:
+            - include_related_ids=False 时，仅生成消息对象
+            - include_related_ids=True 时，生成 (message_content, related_illust_ids)
     """
 
     def _get_illust_id(item):
@@ -329,23 +332,28 @@ async def process_and_send_illusts(
             pass
         return None
 
+    def _wrap_result(message_content, related_ids):
+        if include_related_ids:
+            return message_content, related_ids
+        return message_content
+
     # 应用过滤
     filtered_illusts, filter_msgs = filter_illusts_with_reason(initial_illusts, config)
 
     # 发送过滤消息
     if config.show_filter_result:
         for msg in filter_msgs:
-            yield event.plain_result(msg), []
+            yield _wrap_result(event.plain_result(msg), [])
 
     if not filtered_illusts:
         # 如果没有符合条件的作品，发送一个提示消息
         if config.show_filter_result:
             # 如果显示过滤结果，但过滤消息为空，发送一个默认消息
             if not filter_msgs:
-                yield event.plain_result("筛选后没有符合条件的作品可发送。"), []
+                yield _wrap_result(event.plain_result("筛选后没有符合条件的作品可发送。"), [])
         else:
             # 如果不显示过滤结果，直接发送一个简单的提示消息
-            yield event.plain_result("没有找到符合条件的作品。"), []
+            yield _wrap_result(event.plain_result("没有找到符合条件的作品。"), [])
         return
 
     # 随机选择作品
@@ -371,7 +379,7 @@ async def process_and_send_illusts(
             illusts_to_send,
             lambda illust: build_detail_message_func(illust, is_novel=is_novel),
         ):
-            yield result, related_ids
+            yield _wrap_result(result, related_ids)
     else:
         # 未启用转发时逐张发送
         for illust in illusts_to_send:
@@ -380,7 +388,9 @@ async def process_and_send_illusts(
             async for result in send_pixiv_image_func(
                 client, event, illust, detail_message, show_details=config.show_details
             ):
-                yield result, ([illust_id] if illust_id is not None else [])
+                yield _wrap_result(
+                    result, ([illust_id] if illust_id is not None else [])
+                )
 
 
 def parse_tags_with_exclusion(tags_str):
