@@ -12,6 +12,7 @@
 
 - 🎨 **多种搜索方式**: 支持标签搜索、用户搜索、作品详情查询
 - 📚 **内容多样化**: 插画、小说、排行榜、推荐作品一应俱全
+- 🧩 **Fanbox 支持**: 可查询 Fanbox 创作者、帖子详情与推荐创作者
 - 🎬 **动图支持**: 自动识别并转换 Pixiv 动图（ugoira）为GIF格式
 - 🔍 **高级搜索**: 深度搜索、与搜索、相关作品推荐
 - 🛡️ **内容控制**: 灵活的 R18 内容过滤配置
@@ -44,6 +45,12 @@
 
 ### 热度搜索
 - `/pixiv_hot <标签> [时间范围] [页数]` - 按收藏数排序搜索（时间范围: day/week/month/all）
+
+### Fanbox 功能
+- `/pixiv_fanbox_creator <creatorId|pixiv用户ID|链接> [数量]` - 查看创作者和最近帖子
+- `/pixiv_fanbox_post <postId|帖子链接>` - 查看帖子详情、图片和附件链接
+- `/pixiv_fanbox_recommended [数量]` - 获取推荐创作者
+- `/pixiv_fanbox_artist <关键词> [数量]` - 按 Nekohouse artists 搜索 Fanbox 创作者
 
 ### 配置管理
 - `/pixiv_config show` - 显示当前配置
@@ -95,6 +102,8 @@
 2. 进入 `插件管理` -> 找到 Pixiv 搜索插件
 3. 点击 `插件配置`，填写以下信息：
    - **Refresh Token**: 必填，用于 Pixiv API 认证
+   - **Fanbox Session (可选)**: `FANBOXSESSID`，用于受限 Fanbox 内容
+   - **Fanbox 数据源模式**: `auto`（默认，官方优先失败回退 Nekohouse）/`official`（仅官方）/`nekohouse`（仅归档）
    - **R18 过滤模式**: 过滤R18/允许R18/仅R18
    - **返回图片数量**: 1-10张，默认1张
    - **AI作品显示**: 是否显示AI生成作品
@@ -175,6 +184,12 @@
 # 热度搜索
 /pixiv_hot 可莉 week 5
 
+# Fanbox 功能
+/pixiv_fanbox_creator harusono 5
+/pixiv_fanbox_post 10451793
+/pixiv_fanbox_recommended 8
+/pixiv_fanbox_artist hannari 10
+
 # 配置管理
 /pixiv_config show
 /pixiv_config r18_mode 仅 R18
@@ -186,6 +201,10 @@
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `refresh_token` | Pixiv API 认证令牌 | 必填 |
+| `fanbox_sessid` | Fanbox 会话 Cookie（FANBOXSESSID，可选） | 留空 |
+| `fanbox_cookie` | Fanbox 完整 Cookie（建议含 `cf_clearance` + `FANBOXSESSID`） | 留空 |
+| `fanbox_user_agent` | Fanbox 请求 UA（建议与浏览器一致） | 留空 |
+| `fanbox_data_source` | Fanbox 数据源：`auto`/`official`/`nekohouse` | auto |
 | `return_count` | 每次搜索返回的图片数量 (1-10) | 1 |
 | `r18_mode` | R18内容处理模式 | 过滤 R18 |
 | `ai_filter_mode` | AI作品显示设置 | 显示 AI 作品 |
@@ -214,6 +233,10 @@
 **模块未找到**: 重启 AstrBot 以确保依赖正确安装
 
 **API 认证失败**: 检查 `refresh_token` 是否有效和正确配置
+
+**Fanbox 帖子获取失败**: 可能触发 Cloudflare 或帖子受限。可先用 `/pixiv_fanbox_creator` 查看公开帖子，必要时配置 `fanbox_sessid`；若官方仍 403，建议同时配置 `fanbox_cookie`（完整 Cookie，含 `cf_clearance`）和 `fanbox_user_agent`（与浏览器一致）；也可切换 `fanbox_data_source=nekohouse` 仅走归档数据。
+
+**Fanbox 配置缺省提示**: 当 `fanbox_sessid` 未配置且访问受限内容时，会自动返回 `data/helpmsg.json` 的 `pixiv_fanbox_sessid_missing` 提示。
 
 ## 📖 更多信息
 

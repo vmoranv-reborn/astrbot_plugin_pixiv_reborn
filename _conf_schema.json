@@ -7,6 +7,39 @@
       "is_sensitive": true,
       "required": true
   },
+  "fanbox_sessid": {
+      "description": "Pixiv Fanbox Session（FANBOXSESSID）",
+      "type": "string",
+      "hint": "用于访问受限 Fanbox 内容。格式通常为 `数字_字母数字`，可在浏览器 Cookie 的 FANBOXSESSID 中获取。",
+      "default": "",
+      "is_sensitive": true,
+      "required": false
+  },
+  "fanbox_cookie": {
+      "description": "Pixiv Fanbox 完整 Cookie（可选）",
+      "type": "string",
+      "hint": "可填写浏览器请求头完整 Cookie（建议包含 cf_clearance、FANBOXSESSID）。用于官方 API 被 Cloudflare 拦截时复用浏览器会话。",
+      "default": "",
+      "is_sensitive": true,
+      "required": false
+  },
+  "fanbox_user_agent": {
+      "description": "Fanbox 请求 User-Agent（可选）",
+      "type": "string",
+      "hint": "建议填写与你浏览器一致的 UA；与 fanbox_cookie 搭配可提升官方 API 通过率。",
+      "default": ""
+  },
+  "fanbox_data_source": {
+      "description": "Fanbox 数据源模式",
+      "type": "string",
+      "hint": "可选：auto(官方优先失败回退Nekohouse)、official(仅官方API)、nekohouse(仅Nekohouse归档)",
+      "default": "auto",
+      "options": [
+          "auto",
+          "official",
+          "nekohouse"
+      ]
+  },
   "return_count": {
       "description": "每次搜索返回的图片数量",
       "type": "int",
