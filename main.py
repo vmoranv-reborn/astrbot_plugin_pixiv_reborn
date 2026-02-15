@@ -22,6 +22,7 @@ from .handlers.novel import NovelHandler
 from .handlers.subscribe import SubscribeHandler
 from .handlers.random_illust import RandomIllustHandler
 from .handlers.misc import MiscHandler
+from .handlers.fanbox import FanboxHandler
 
 
 class PixivSearchPlugin(Star):
@@ -59,6 +60,7 @@ class PixivSearchPlugin(Star):
             self.client_wrapper, self.pixiv_config, context
         )
         self.misc_handler = MiscHandler(self.client_wrapper, self.pixiv_config)
+        self.fanbox_handler = FanboxHandler(self.pixiv_config)
 
         self._refresh_task: asyncio.Task = None
         self._http_session = None
@@ -121,7 +123,7 @@ class PixivSearchPlugin(Star):
             "name": "pixiv_search",
             "author": "vmoranv",
             "description": "Pixiv 图片搜索",
-            "version": "1.6.0",
+            "version": "1.7.0",
             "homepage": "https://github.com/vmoranv-reborn/astrbot_plugin_pixiv_search",
         }
 
@@ -396,6 +398,30 @@ class PixivSearchPlugin(Star):
     async def pixiv_hot(self, event: AstrMessageEvent, args: str = ""):
         """按热度（收藏数）搜索作品"""
         async for result in self.illust_handler.pixiv_hot(event, args):
+            yield result
+
+    @command("pixiv_fanbox_creator")
+    async def pixiv_fanbox_creator(self, event: AstrMessageEvent, args: str = ""):
+        """获取 Fanbox 创作者信息和最近帖子"""
+        async for result in self.fanbox_handler.pixiv_fanbox_creator(event, args):
+            yield result
+
+    @command("pixiv_fanbox_post")
+    async def pixiv_fanbox_post(self, event: AstrMessageEvent, args: str = ""):
+        """获取 Fanbox 帖子详情"""
+        async for result in self.fanbox_handler.pixiv_fanbox_post(event, args):
+            yield result
+
+    @command("pixiv_fanbox_recommended")
+    async def pixiv_fanbox_recommended(self, event: AstrMessageEvent, args: str = "5"):
+        """获取 Fanbox 推荐创作者"""
+        async for result in self.fanbox_handler.pixiv_fanbox_recommended(event, args):
+            yield result
+
+    @command("pixiv_fanbox_artist")
+    async def pixiv_fanbox_artist(self, event: AstrMessageEvent, args: str = ""):
+        """按 Nekohouse artists 搜索 Fanbox 创作者"""
+        async for result in self.fanbox_handler.pixiv_fanbox_artist(event, args):
             yield result
 
     async def terminate(self):

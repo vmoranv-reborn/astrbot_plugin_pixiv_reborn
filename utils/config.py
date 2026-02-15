@@ -36,9 +36,7 @@ async def clean_temp_dir(temp_dir: Path, max_files: int = 20) -> None:
                         await asyncio.to_thread(os.remove, target)
                     logger.debug(f"[PixivPlugin] 已删除临时项: {target}")
                 except OSError as e:
-                    logger.warning(
-                        f"[PixivPlugin] 删除临时项失败: {target}，原因: {e}"
-                    )
+                    logger.warning(f"[PixivPlugin] 删除临时项失败: {target}，原因: {e}")
 
             logger.info(
                 f"[PixivPlugin] 临时目录清理完成，删除了 {num_to_delete} 个条目"
@@ -114,6 +112,14 @@ class PixivConfig:
         self.random_sent_illust_retention_days = self.config.get(
             "random_sent_illust_retention_days", 7
         )
+        self.fanbox_sessid = self.config.get("fanbox_sessid", "").strip()
+        self.fanbox_cookie = self.config.get("fanbox_cookie", "").strip()
+        self.fanbox_user_agent = self.config.get("fanbox_user_agent", "").strip()
+        self.fanbox_data_source = (
+            str(self.config.get("fanbox_data_source", "auto") or "auto").strip().lower()
+        )
+        if self.fanbox_data_source not in {"auto", "official", "nekohouse"}:
+            self.fanbox_data_source = "auto"
         # 新增：图片反代配置
         self.image_proxy_host = self.config.get("image_proxy_host", "i.pixiv.re")
         self.use_image_proxy = self.config.get("use_image_proxy", True)
@@ -129,13 +135,24 @@ class PixivConfig:
 
     def get_config_info(self) -> str:
         """获取配置信息字符串"""
+        effective_proxy = (
+            self.proxy
+            or os.getenv("HTTPS_PROXY", "").strip()
+            or os.getenv("https_proxy", "").strip()
+            or os.getenv("HTTP_PROXY", "").strip()
+            or os.getenv("http_proxy", "").strip()
+        )
         return (
             f"refresh_token={'已设置' if self.refresh_token else '未设置'}, "
             f"return_count={self.return_count}, r18_mode='{self.r18_mode}', "
             f"ai_filter_mode='{self.ai_filter_mode}', show_details={self.show_details}, "
             f"refresh_interval={self.refresh_interval} 分钟, "
             f"subscription_enabled={self.subscription_enabled}, "
-            f"proxy='{self.proxy or '未使用'}'"
+            f"proxy='{effective_proxy or '未使用'}', "
+            f"fanbox_sessid={'已设置' if self.fanbox_sessid else '未设置'}, "
+            f"fanbox_cookie={'已设置' if self.fanbox_cookie else '未设置'}, "
+            f"fanbox_user_agent={'已设置' if self.fanbox_user_agent else '未设置'}, "
+            f"fanbox_data_source='{self.fanbox_data_source}'"
         )
 
     def get_requests_kwargs(self) -> Dict[str, Any]:
@@ -174,6 +191,11 @@ class PixivConfigManager:
             "pil_compress_quality": {"type": "int", "min": 1, "max": 100},
             "pil_compress_target_kb": {"type": "int", "min": 0, "max": 20480},
             "subscription_enabled": {"type": "bool"},
+            "fanbox_data_source": {
+                "type": "enum",
+                "choices": ["auto", "official", "nekohouse"],
+            },
+            "fanbox_user_agent": {"type": "string"},
             # 隐藏的配置项，不显示给用户但仍然可以设置
             "image_send_method": {
                 "type": "enum",
@@ -194,6 +216,8 @@ class PixivConfigManager:
             "random_search_min_interval": {"type": "int", "min": 1, "max": 1440},
             "random_search_max_interval": {"type": "int", "min": 1, "max": 1440},
             "proxy": {"type": "string", "hidden": True},
+            "fanbox_sessid": {"type": "string", "hidden": True},
+            "fanbox_cookie": {"type": "string", "hidden": True},
             "random_sent_illust_retention_days": {"type": "int", "min": 1, "max": 365},
         }
 
@@ -222,6 +246,8 @@ class PixivConfigManager:
             "pil_compress_quality",
             "pil_compress_target_kb",
             "subscription_enabled",
+            "fanbox_data_source",
+            "fanbox_user_agent",
             "random_search_min_interval",
             "random_search_max_interval",
             "random_sent_illust_retention_days",

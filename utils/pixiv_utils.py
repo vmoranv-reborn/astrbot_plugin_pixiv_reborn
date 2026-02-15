@@ -148,9 +148,7 @@ def _build_image_from_url(url: str) -> Optional[Image]:
         return None
     # 如果没有配置代理，使用图片反代 URL
     use_image_proxy = (
-        bool(getattr(_config, "use_image_proxy", True))
-        if _config
-        else True
+        bool(getattr(_config, "use_image_proxy", True)) if _config else True
     ) and not bool(_config.proxy if _config else None)
     actual_url = get_proxied_image_url(url, use_proxy=use_image_proxy)
     if actual_url and (
@@ -382,9 +380,7 @@ async def download_image(
             default_headers.update(headers)
         # 如果没有配置代理，使用图片反代 URL
         use_image_proxy = (
-            bool(getattr(_config, "use_image_proxy", True))
-            if _config
-            else True
+            bool(getattr(_config, "use_image_proxy", True)) if _config else True
         ) and not bool(_config.proxy if _config else None)
         actual_url = get_proxied_image_url(url, use_proxy=use_image_proxy)
 

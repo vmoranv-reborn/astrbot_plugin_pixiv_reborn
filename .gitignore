@@ -1,2 +1,5 @@
 __pycache__/
 .serena/
+.tmp/
+data/t2i_templates/
+data/cmd_config.json

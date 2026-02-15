@@ -1,6 +1,6 @@
 id: astrbot_plugin_pixiv_reborn
 name: astrbot_plugin_pixiv_reborn
 author: vmoranv-reborn
-version: 1.6.0
+version: 1.6.1
 description: 通过标签在 Pixiv 上搜索插画。用法 /pixiv tag1,tag2,... 可在配置中设置认证信息、返回数量和 R18 过滤模式。
 repo: https://github.com/vmoranv-reborn/astrbot_plugin_pixiv_reborn
