@@ -28,6 +28,7 @@ class PixivIllustSearchTool(FunctionTool[AstrAgentContext]):
 
     pixiv_client: Any = None
     pixiv_config: Any = None
+    pixiv_client_wrapper: Any = None
     name: str = "pixiv_search_illust"
     description: str = (
         "【图片/插画搜索专用工具】用于在Pixiv上搜索二次元插画、动漫图片、壁纸等。"
@@ -74,6 +75,16 @@ class PixivIllustSearchTool(FunctionTool[AstrAgentContext]):
 
             if not self.pixiv_client:
                 return "错误: Pixiv客户端未初始化"
+
+            if (
+                self.pixiv_client_wrapper
+                and not await self.pixiv_client_wrapper.authenticate()
+            ):
+                if self.pixiv_config and hasattr(
+                    self.pixiv_config, "get_auth_error_message"
+                ):
+                    return self.pixiv_config.get_auth_error_message()
+                return "Pixiv API 认证失败，请检查配置中的凭据信息。"
 
             tags = query.strip()
             return await self._search_illust(tags, query, context, count)
@@ -222,6 +233,7 @@ class PixivNovelSearchTool(FunctionTool[AstrAgentContext]):
 
     pixiv_client: Any = None
     pixiv_config: Any = None
+    pixiv_client_wrapper: Any = None
 
     name: str = "pixiv_search_novel"
     description: str = "Pixiv小说搜索工具。用于搜索Pixiv上的小说，或者通过ID直接下载小说。支持输入关键词或纯数字ID。"
@@ -251,6 +263,16 @@ class PixivNovelSearchTool(FunctionTool[AstrAgentContext]):
 
             if not self.pixiv_client:
                 return "错误: Pixiv客户端未初始化"
+
+            if (
+                self.pixiv_client_wrapper
+                and not await self.pixiv_client_wrapper.authenticate()
+            ):
+                if self.pixiv_config and hasattr(
+                    self.pixiv_config, "get_auth_error_message"
+                ):
+                    return self.pixiv_config.get_auth_error_message()
+                return "Pixiv API 认证失败，请检查配置中的凭据信息。"
 
             tags = query.strip()
             return await self._search_novel(tags, query, context)
@@ -425,17 +447,31 @@ class PixivNovelSearchTool(FunctionTool[AstrAgentContext]):
         return result
 
 
-def create_pixiv_llm_tools(pixiv_client=None, pixiv_config=None) -> List[FunctionTool]:
+def create_pixiv_llm_tools(
+    pixiv_client=None, pixiv_config=None, pixiv_client_wrapper=None
+) -> List[FunctionTool]:
     """
     创建Pixiv相关的LLM工具列表
     """
     logger.info(
-        f"创建Pixiv LLM工具，pixiv_client: {'已设置' if pixiv_client else '未设置'}"
+        "创建Pixiv LLM工具，pixiv_client: %s, wrapper: %s"
+        % (
+            "已设置" if pixiv_client else "未设置",
+            "已设置" if pixiv_client_wrapper else "未设置",
+        )
     )
 
     tools = [
-        PixivIllustSearchTool(pixiv_client=pixiv_client, pixiv_config=pixiv_config),
-        PixivNovelSearchTool(pixiv_client=pixiv_client, pixiv_config=pixiv_config),
+        PixivIllustSearchTool(
+            pixiv_client=pixiv_client,
+            pixiv_config=pixiv_config,
+            pixiv_client_wrapper=pixiv_client_wrapper,
+        ),
+        PixivNovelSearchTool(
+            pixiv_client=pixiv_client,
+            pixiv_config=pixiv_config,
+            pixiv_client_wrapper=pixiv_client_wrapper,
+        ),
     ]
     logger.info(f"已创建 {len(tools)} 个LLM工具")
     return tools
