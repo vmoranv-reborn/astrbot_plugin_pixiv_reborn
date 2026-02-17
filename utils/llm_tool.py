@@ -16,8 +16,13 @@ from .tag import (
     build_detail_message,
     FilterConfig,
     filter_illusts_with_reason,
+    process_and_send_illusts_sorted,
 )
-from .pixiv_utils import send_pixiv_image, generate_safe_filename
+from .pixiv_utils import (
+    send_pixiv_image,
+    send_forward_message,
+    generate_safe_filename,
+)
 
 
 @dataclass
@@ -167,44 +172,50 @@ class PixivIllustSearchTool(FunctionTool[AstrAgentContext]):
             logger=logger,
             show_filter_result=False,
             excluded_tags=[],
+            forward_threshold=self.pixiv_config.forward_threshold
+            if self.pixiv_config
+            else False,
+            show_details=self.pixiv_config.show_details if self.pixiv_config else True,
         )
 
         filtered_items, _ = filter_illusts_with_reason(items, config)
-
-        if filtered_items:
-            # 按热度取前N张（不随机）
-            selected_items = filtered_items[: config.return_count]
-
-            text_result = f"🔥 找到了！为您搜索到「{query}」一周内最热门的 {len(selected_items)} 张作品："
-
-            try:
-                for selected_item in selected_items:
-                    detail_message = build_detail_message(selected_item, is_novel=False)
-
-                    results = []
-                    async for result in send_pixiv_image(
-                        self.pixiv_client,
-                        event,
-                        selected_item,
-                        detail_message,
-                        show_details=self.pixiv_config.show_details
-                        if self.pixiv_config
-                        else True,
-                    ):
-                        results.append(result)
-
-                    if results and hasattr(event, "send"):
-                        try:
-                            await event.send(results[0])
-                        except Exception as e:
-                            logger.warning(f"发送图片失败: {e}")
-
-                return text_result
-            except Exception as e:
-                logger.error(f"发送失败: {e}")
-                return text_result
-        else:
+        if not filtered_items:
             return "找到插画但被过滤了 (可能是R18或AI作品)。"
+
+        if not hasattr(event, "send"):
+            return self._format_text_results(filtered_items, query, tags)
+
+        expected_count = min(len(filtered_items), config.return_count)
+        sent_batches = 0
+
+        try:
+            async for result in process_and_send_illusts_sorted(
+                items,
+                config,
+                self.pixiv_client,
+                event,
+                build_detail_message,
+                send_pixiv_image,
+                send_forward_message,
+                is_novel=False,
+            ):
+                try:
+                    await event.send(result)
+                    sent_batches += 1
+                except Exception as e:
+                    logger.warning(f"发送图片失败: {e}")
+
+            if sent_batches > 0:
+                mode = "转发消息" if config.forward_threshold else "普通消息"
+                return (
+                    f"🔥 找到了！为您发送了「{query}」一周内最热门的"
+                    f" {expected_count} 张作品（{mode}）。"
+                )
+
+            return "找到插画但发送失败，请稍后再试。"
+        except Exception as e:
+            logger.error(f"发送失败: {e}")
+            return "找到插画但发送过程中出现异常。"
 
     def _get_event(self, context):
         try:
