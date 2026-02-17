@@ -104,7 +104,9 @@ class PixivSearchPlugin(Star):
         logger.info(
             f"Pixiv 插件：准备初始化LLM工具，client: {'已设置' if self.client else '未设置'}"
         )
-        self.llm_tools = create_pixiv_llm_tools(self.client, self.pixiv_config)
+        self.llm_tools = create_pixiv_llm_tools(
+            self.client, self.pixiv_config, self.client_wrapper
+        )
         logger.info("Pixiv 插件：LLM工具已初始化。")
 
         # 注册LLM工具到AstrBot
