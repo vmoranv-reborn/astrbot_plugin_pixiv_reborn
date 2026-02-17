@@ -167,8 +167,11 @@ class PixivSearchPlugin(Star):
             yield result
 
     @command("pixiv_ranking")
-    async def pixiv_ranking(self, event: AstrMessageEvent, args: str = ""):
+    async def pixiv_ranking(
+        self, event: AstrMessageEvent, mode: str = "", date: str = ""
+    ):
         """获取 Pixiv 排行榜作品"""
+        args = " ".join([x for x in [mode, date] if x])
         async for result in self.illust_handler.pixiv_ranking(event, args):
             yield result
 
@@ -348,8 +351,11 @@ class PixivSearchPlugin(Star):
             yield result
 
     @command("pixiv_random_ranking_add")
-    async def pixiv_random_ranking_add(self, event: AstrMessageEvent, args: str = ""):
+    async def pixiv_random_ranking_add(
+        self, event: AstrMessageEvent, mode: str = "", date: str = ""
+    ):
         """添加随机排行榜配置"""
+        args = " ".join([x for x in [mode, date] if x])
         async for result in self.random_illust_handler.pixiv_random_ranking_add(
             event, args
         ):
@@ -395,14 +401,26 @@ class PixivSearchPlugin(Star):
             yield event.plain_result(result)
 
     @command("pixiv_hot")
-    async def pixiv_hot(self, event: AstrMessageEvent, args: str = ""):
+    async def pixiv_hot(
+        self,
+        event: AstrMessageEvent,
+        tag: str = "",
+        duration: str = "",
+        pages: str = "",
+    ):
         """按热度（收藏数）搜索作品"""
-        async for result in self.illust_handler.pixiv_hot(event, args):
+        async for result in self.illust_handler.pixiv_hot(event, tag, duration, pages):
             yield result
 
     @command("pixiv_fanbox_creator")
-    async def pixiv_fanbox_creator(self, event: AstrMessageEvent, args: str = ""):
+    async def pixiv_fanbox_creator(
+        self,
+        event: AstrMessageEvent,
+        creator_input: str = "",
+        limit: str = "",
+    ):
         """获取 Fanbox 创作者信息和最近帖子"""
+        args = " ".join([x for x in [creator_input, limit] if x])
         async for result in self.fanbox_handler.pixiv_fanbox_creator(event, args):
             yield result
 
@@ -419,8 +437,14 @@ class PixivSearchPlugin(Star):
             yield result
 
     @command("pixiv_fanbox_artist")
-    async def pixiv_fanbox_artist(self, event: AstrMessageEvent, args: str = ""):
+    async def pixiv_fanbox_artist(
+        self,
+        event: AstrMessageEvent,
+        keyword: str = "",
+        limit: str = "",
+    ):
         """按 Nekohouse artists 搜索 Fanbox 创作者"""
+        args = " ".join([x for x in [keyword, limit] if x])
         async for result in self.fanbox_handler.pixiv_fanbox_artist(event, args):
             yield result
 

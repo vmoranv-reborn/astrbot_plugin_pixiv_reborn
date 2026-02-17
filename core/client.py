@@ -20,7 +20,9 @@ class PixivClientWrapper:
             # 使用 API 反代服务器
             self.client_api = AppPixivAPI()
             self.client_api.hosts = f"https://{pixiv_config.api_proxy_host}"
-            logger.info(f"Pixiv 插件：使用 API 反代模式 ({pixiv_config.api_proxy_host})")
+            logger.info(
+                f"Pixiv 插件：使用 API 反代模式 ({pixiv_config.api_proxy_host})"
+            )
         else:
             # 尝试多种直连方案
             self.client_api = self._create_direct_client()
@@ -34,11 +36,10 @@ class PixivClientWrapper:
             logger.info("Pixiv 插件：DNS 解析成功，尝试直连模式")
             # 先测试连接
             import requests
+
             try:
-                test_resp = requests.head(
-                    "https://oauth.secure.pixiv.net/",
-                    timeout=5,
-                    allow_redirects=False
+                requests.head(
+                    "https://oauth.secure.pixiv.net/", timeout=5, allow_redirects=False
                 )
                 logger.info("Pixiv 插件：直连测试成功，使用标准 AppPixivAPI")
                 return AppPixivAPI()
@@ -59,17 +60,19 @@ class PixivClientWrapper:
         logger.warning("Pixiv 插件：所有直连方案失败，回退到标准模式（可能无法连接）")
         return AppPixivAPI()
 
-    def _require_appapi_hosts_with_cn_doh(self, api, hostname: str = "app-api.secure.pixiv.net", timeout: int = 10) -> str | bool:
+    def _require_appapi_hosts_with_cn_doh(
+        self, api, hostname: str = "app-api.secure.pixiv.net", timeout: int = 10
+    ) -> str | bool:
         """使用国内可用的 DoH 服务器解析 Pixiv hosts"""
         import requests
 
         # 优先使用国内 DoH 服务器
         doh_urls = [
-            "https://doh.pub/dns-query",      # 腾讯 DoH（国内可用）
-            "https://dns.alidns.com/dns-query", # 阿里 DoH（可能可用）
-            "https://1.0.0.1/dns-query",      # Cloudflare 备选
-            "https://1.1.1.1/dns-query",      # Cloudflare 主
-            "https://doh.dns.sb/dns-query",   # DNS.sb
+            "https://doh.pub/dns-query",  # 腾讯 DoH（国内可用）
+            "https://dns.alidns.com/dns-query",  # 阿里 DoH（可能可用）
+            "https://1.0.0.1/dns-query",  # Cloudflare 备选
+            "https://1.1.1.1/dns-query",  # Cloudflare 主
+            "https://doh.dns.sb/dns-query",  # DNS.sb
         ]
 
         headers = {"Accept": "application/dns-json"}
@@ -82,7 +85,9 @@ class PixivClientWrapper:
 
         for url in doh_urls:
             try:
-                response = requests.get(url, headers=headers, params=params, timeout=timeout)
+                response = requests.get(
+                    url, headers=headers, params=params, timeout=timeout
+                )
                 if response.status_code == 200:
                     data = response.json()
                     if "Answer" in data and data["Answer"]:

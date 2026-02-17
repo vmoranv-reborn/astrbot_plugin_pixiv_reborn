@@ -1233,15 +1233,26 @@ class IllustHandler:
             yield event.plain_result(f"获取特辑详情时发生错误: {str(e)}")
 
     async def pixiv_hot(
-        self, event: AstrMessageEvent, tags: str = "", duration: str = "week"
+        self,
+        event: AstrMessageEvent,
+        tag: str = "",
+        duration: str = "",
+        pages: str = "",
     ):
         """
         按热度（收藏数）搜索特定标签的作品
         用法: /pixiv_hot <标签> [时间范围] [页数]
         时间范围: day(一天内), week(一周内,默认), month(一月内), all(全部)
         """
-        cleaned_tags = tags.strip()
-        args_list = cleaned_tags.split() if cleaned_tags else []
+        args_list = [
+            x.strip()
+            for x in [tag, duration, pages]
+            if isinstance(x, str) and x.strip()
+        ]
+
+        # 兼容旧调用：将完整参数放在第一个入参中
+        if len(args_list) <= 1 and args_list:
+            args_list = args_list[0].split()
 
         # 帮助信息
         if not args_list or args_list[0].lower() == "help":
