@@ -146,10 +146,8 @@ def _build_image_from_url(url: str) -> Optional[Image]:
     """
     if not url:
         return None
-    # 如果没有配置代理，使用图片反代 URL
-    use_image_proxy = (
-        bool(getattr(_config, "use_image_proxy", True)) if _config else True
-    ) and not bool(_config.proxy if _config else None)
+    # URL 发送由平台侧拉取图片，不会复用插件下载代理；这里按配置独立控制反代
+    use_image_proxy = bool(getattr(_config, "use_image_proxy", True)) if _config else True
     actual_url = get_proxied_image_url(url, use_proxy=use_image_proxy)
     if actual_url and (
         actual_url.startswith("http://") or actual_url.startswith("https://")
