@@ -93,7 +93,22 @@ class PixivConfig:
         self.show_details = self.config.get("show_details", True)
         self.deep_search_depth = self.config.get("deep_search_depth", 3)
         self.forward_threshold = self.config.get("forward_threshold", False)
-        self.image_send_method = self.config.get("image_send_method", "url")
+        raw_send_method = str(self.config.get("image_send_method", "") or "").strip().lower()
+        legacy_is_fromfilesystem = self.config.get("is_fromfilesystem", None)
+        if raw_send_method in {"url", "file", "byte"}:
+            self.image_send_method = raw_send_method
+        elif legacy_is_fromfilesystem is not None:
+            # 兼容旧配置：is_fromfilesystem=True -> file, False -> byte
+            self.image_send_method = (
+                "file" if bool(legacy_is_fromfilesystem) else "byte"
+            )
+            logger.info(
+                "Pixiv 插件：检测到旧配置 is_fromfilesystem=%s，已兼容映射为 image_send_method=%s",
+                legacy_is_fromfilesystem,
+                self.image_send_method,
+            )
+        else:
+            self.image_send_method = "url"
         self.image_quality = self.config.get("image_quality", "original")
         # 本地 PIL 压缩：仅在 image_send_method 为 file/byte 时生效
         self.pil_compress_quality = self.config.get("pil_compress_quality", 100)
@@ -120,10 +135,8 @@ class PixivConfig:
         )
         if self.fanbox_data_source not in {"auto", "official", "nekohouse"}:
             self.fanbox_data_source = "auto"
-        # 新增：图片反代配置
         self.image_proxy_host = self.config.get("image_proxy_host", "i.pixiv.re")
         self.use_image_proxy = self.config.get("use_image_proxy", True)
-        # 新增：API 反代服务器配置（用于大陆直连替代 ByPassSniApi）
         self.api_proxy_host = self.config.get("api_proxy_host", "").strip()
 
     def get_auth_error_message(self) -> str:

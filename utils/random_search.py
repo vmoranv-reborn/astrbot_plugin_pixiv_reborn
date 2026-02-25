@@ -40,7 +40,6 @@ class RandomSearchService:
         # 防止并发执行的锁: {chat_id: bool}
         self.execution_locks = {}
 
-        # 新增：全局执行锁和任务队列
         self.global_execution_lock = asyncio.Lock()  # 全局执行锁
         self.task_queue = asyncio.Queue()  # 任务队列
         self.is_queue_processor_running = False  # 队列处理器运行状态
