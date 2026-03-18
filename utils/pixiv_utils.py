@@ -785,7 +785,11 @@ async def _convert_ugoira_to_gif(zip_data, metadata, safe_title, illust_id):
 
 
 async def send_forward_message(
-    client: AppPixivAPI, event, images, build_detail_message_func
+    client: AppPixivAPI,
+    event,
+    images,
+    build_detail_message_func,
+    send_all_pages: bool = False,
 ):
     """
     直接下载图片并组装 nodes，避免不兼容消息类型。
@@ -795,17 +799,42 @@ async def send_forward_message(
     nickname = "PixivBot"
     # 在处理转发消息之前，先清理可能存在的旧文件
     await clean_temp_dir(_temp_dir, max_files=20)
-    for i in range(0, len(images), batch_size):
-        batch_imgs = images[i : i + batch_size]
+    class SinglePageUrls:
+        def __init__(self, illust):
+            self.original = getattr(illust.meta_single_page, "original_image_url", None)
+            self.large = getattr(illust.image_urls, "large", None)
+            self.medium = getattr(illust.image_urls, "medium", None)
+
+    image_items = []
+    for img in images:
+        if hasattr(img, "type") and img.type == "ugoira":
+            detail_message = (
+                build_detail_message_func(img) if _config.show_details else None
+            )
+            image_items.append(("ugoira", img, None, detail_message))
+            continue
+
+        detail_message = build_detail_message_func(img)
+        if send_all_pages and img.page_count > 1:
+            for page_index, page in enumerate(img.meta_pages):
+                page_detail = (
+                    f"第 {page_index + 1}/{img.page_count} 页\n{detail_message or ''}"
+                )
+                image_items.append(("image", img, page.image_urls, page_detail))
+        else:
+            if img.page_count > 1:
+                url_obj = img.meta_pages[0].image_urls
+            else:
+                url_obj = SinglePageUrls(img)
+            image_items.append(("image", img, url_obj, detail_message))
+
+    for i in range(0, len(image_items), batch_size):
+        batch_items = image_items[i : i + batch_size]
         nodes_list = []
         async with aiohttp.ClientSession() as session:
-            for img in batch_imgs:
-                # 检查是否为动图
-                if hasattr(img, "type") and img.type == "ugoira":
+            for item_type, img, url_obj, detail_message in batch_items:
+                if item_type == "ugoira":
                     # 使用通用函数处理动图
-                    detail_message = (
-                        build_detail_message_func(img) if _config.show_details else None
-                    )
                     content = await process_ugoira_for_content(
                         client, session, img, detail_message
                     )
@@ -821,26 +850,6 @@ async def send_forward_message(
                         node_content = [Plain("动图处理失败")]
                 else:
                     # 处理普通图片
-                    detail_message = build_detail_message_func(img)
-
-                    # 使用与普通消息相同的URL获取逻辑，包括SinglePageUrls处理
-                    # 辅助类，用于统一单页插画的URL结构
-                    class SinglePageUrls:
-                        def __init__(self, illust):
-                            self.original = getattr(
-                                illust.meta_single_page, "original_image_url", None
-                            )
-                            self.large = getattr(illust.image_urls, "large", None)
-                            self.medium = getattr(illust.image_urls, "medium", None)
-
-                    # 获取URL对象，与普通消息保持一致
-                    if img.page_count > 1:
-                        # 多页作品的第一页
-                        url_obj = img.meta_pages[0].image_urls
-                    else:
-                        # 单页作品，使用SinglePageUrls获取original质量
-                        url_obj = SinglePageUrls(img)
-
                     # 使用与普通消息相同的质量降级逻辑
                     quality_preference = ["original", "large", "medium"]
                     start_index = (

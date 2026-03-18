@@ -488,17 +488,29 @@ class IllustHandler:
             if not filtered_illusts:
                 return
 
-            # 统一使用build_detail_message生成详情信息
-            detail_message = build_detail_message(filtered_illusts[0], is_novel=False)
-            async for result in send_pixiv_image(
-                self.client,
-                event,
-                filtered_illusts[0],
-                detail_message,
-                show_details=self.pixiv_config.show_details,
-                send_all_pages=True,  # 发送特定作品的所有页面
-            ):
-                yield result
+            # 根据转发消息设置决定发送方式
+            if self.pixiv_config.forward_threshold:
+                # 启用转发时使用转发消息发送
+                async for result in send_forward_message(
+                    self.client,
+                    event,
+                    filtered_illusts,
+                    lambda illust: build_detail_message(illust, is_novel=False),
+                    send_all_pages=True,
+                ):
+                    yield result
+            else:
+                # 未启用转发时逐张发送
+                detail_message = build_detail_message(filtered_illusts[0], is_novel=False)
+                async for result in send_pixiv_image(
+                    self.client,
+                    event,
+                    filtered_illusts[0],
+                    detail_message,
+                    show_details=self.pixiv_config.show_details,
+                    send_all_pages=True,  # 发送特定作品的所有页面
+                ):
+                    yield result
 
         except Exception as e:
             logger.error(f"Pixiv 插件：获取作品详情时发生错误 - {e}")
