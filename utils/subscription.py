@@ -76,22 +76,35 @@ class SubscriptionService:
 
         if new_illusts:
             new_illusts.reverse()
-            latest_id = new_illusts[-1].id
-            update_last_notified_id(sub.chat_id, sub.sub_type, sub.target_id, latest_id)
-
             for illust in new_illusts:
                 filtered_illusts, _ = filter_items(
                     [illust], f"画师订阅: {sub.target_name}"
                 )
                 if filtered_illusts:
-                    await self.send_update(sub, filtered_illusts[0])
-                    await asyncio.sleep(2)
+                    sent_ok = await self.send_update(sub, filtered_illusts[0])
+                    if sent_ok:
+                        update_last_notified_id(
+                            sub.chat_id, sub.sub_type, sub.target_id, illust.id
+                        )
+                    else:
+                        logger.warning(
+                            f"订阅发送失败，保留 last_notified_illust_id 不变，"
+                            f"下次将重试。artist={sub.target_id}, illust={illust.id}"
+                        )
+                        break
+                else:
+                    update_last_notified_id(
+                        sub.chat_id, sub.sub_type, sub.target_id, illust.id
+                    )
+                await asyncio.sleep(2)
 
     async def send_update(self, sub, illust):
-        """发送更新通知"""
+        """发送更新通知，返回图片是否发送成功。"""
+        image_sent = False
         try:
             # 导入 MessageChain 类
             from astrbot.core.message.message_event_result import MessageChain
+            from astrbot.api.message_components import Image, Node, Nodes, Plain
 
             # 创建模拟事件对象（用于捕获消息链）
             class MockEvent:
@@ -124,15 +137,49 @@ class SubscriptionService:
             ):
                 if message_content:
                     if hasattr(message_content, "chain"):
-                        await self.context.send_message(session_id_str, message_content)
+                        if self.pixiv_config.subscription_force_forward:
+                            # 订阅消息统一以合并转发发送（即便只有一条），避免图片直接出现在群聊中
+                            node_content = list(message_content.chain or [])
+                            forward_chain = mock_event.chain_result(
+                                [Nodes(nodes=[Node(name="Pixiv订阅", content=node_content)])]
+                            )
+                            await self.context.send_message(session_id_str, forward_chain)
+                        else:
+                            await self.context.send_message(session_id_str, message_content)
+                        # 只有包含 Image 组件时才视为图片发送成功（文本节点不推进游标）
+                        if any(
+                            isinstance(component, Image)
+                            for component in (message_content.chain or [])
+                        ):
+                            image_sent = True
                     else:
-                        # 如果不是 MessageChain 对象，创建一个
-                        message_chain = MessageChain()
-                        message_chain.message(str(message_content))
-                        await self.context.send_message(session_id_str, message_chain)
+                        plain_text = str(message_content)
+                        if self.pixiv_config.subscription_force_forward:
+                            # 如果不是 MessageChain，对文本也走单节点合并消息
+                            forward_chain = mock_event.chain_result(
+                                [
+                                    Nodes(
+                                        nodes=[
+                                            Node(
+                                                name="Pixiv订阅",
+                                                content=[Plain(plain_text)],
+                                            )
+                                        ]
+                                    )
+                                ]
+                            )
+                            await self.context.send_message(session_id_str, forward_chain)
+                        else:
+                            message_chain = MessageChain()
+                            message_chain.message(plain_text)
+                            await self.context.send_message(
+                                session_id_str, message_chain
+                            )
+            return image_sent
 
         except Exception as e:
             logger.error(f"发送订阅更新时出错: {e}")
             import traceback
 
             logger.error(traceback.format_exc())
+            return False

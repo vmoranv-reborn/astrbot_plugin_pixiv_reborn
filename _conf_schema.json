@@ -171,6 +171,12 @@
       "hint": "启用后，用户将能够订阅画师和标签，并接收更新推送。",
       "default": true
   },
+  "subscription_force_forward": {
+      "description": "订阅消息强制使用合并转发",
+      "type": "bool",
+      "hint": "设置为 true 时，订阅更新始终以合并转发消息发送，用于避免图片直接出现在群聊。",
+      "default": true
+  },
   "subscription_check_interval_minutes": {
       "description": "订阅更新检查间隔（分钟）",
       "type": "int",

@@ -244,6 +244,7 @@
 | `pil_compress_target_kb` | 本地 PIL 目标大小KB(>0优先按大小压缩，仅file/byte生效) | 0 |
 | `refresh_token_interval_minutes` | 自动刷新 Refresh Token 的间隔时间（分钟） | 180 |
 | `subscription_enabled` | 是否启用订阅功能 | true |
+| `subscription_force_forward` | 订阅消息是否强制使用合并转发（即便仅一条） | true |
 | `subscription_check_interval_minutes` | 订阅更新检查间隔（分钟） | 30 |
 | `proxy` | 网络代理地址，如 `http://127.0.0.1:7890` | 留空 |
 | `image_proxy_host` | 图片反代服务器地址 | i.pixiv.re |

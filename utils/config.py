@@ -118,6 +118,9 @@ class PixivConfig:
         self.pil_compress_target_kb = self.config.get("pil_compress_target_kb", 0)
         self.refresh_interval = self.config.get("refresh_token_interval_minutes", 180)
         self.subscription_enabled = self.config.get("subscription_enabled", True)
+        self.subscription_force_forward = self.config.get(
+            "subscription_force_forward", True
+        )
         self.subscription_check_interval_minutes = self.config.get(
             "subscription_check_interval_minutes", 30
         )
@@ -169,6 +172,7 @@ class PixivConfig:
             f"ai_detection_mode='{self.ai_detection_mode}', show_details={self.show_details}, "
             f"refresh_interval={self.refresh_interval} 分钟, "
             f"subscription_enabled={self.subscription_enabled}, "
+            f"subscription_force_forward={self.subscription_force_forward}, "
             f"proxy='{effective_proxy or '未使用'}', "
             f"fanbox_sessid={'已设置' if self.fanbox_sessid else '未设置'}, "
             f"fanbox_cookie={'已设置' if self.fanbox_cookie else '未设置'}, "
@@ -218,6 +222,7 @@ class PixivConfigManager:
             "pil_compress_quality": {"type": "int", "min": 1, "max": 100},
             "pil_compress_target_kb": {"type": "int", "min": 0, "max": 20480},
             "subscription_enabled": {"type": "bool"},
+            "subscription_force_forward": {"type": "bool"},
             "fanbox_data_source": {
                 "type": "enum",
                 "choices": ["auto", "official", "nekohouse"],
@@ -276,6 +281,7 @@ class PixivConfigManager:
             "pil_compress_quality",
             "pil_compress_target_kb",
             "subscription_enabled",
+            "subscription_force_forward",
             "fanbox_data_source",
             "fanbox_user_agent",
             "random_search_min_interval",
