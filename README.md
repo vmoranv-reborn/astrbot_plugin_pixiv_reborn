@@ -107,6 +107,8 @@
    - **Fanbox Session (可选)**: `FANBOXSESSID`，用于受限 Fanbox 内容
    - **Fanbox 数据源模式**: `auto`（默认，官方优先失败回退 Nekohouse）/`official`（仅官方）/`nekohouse`（仅归档）
    - **R18 过滤模式**: 过滤R18/允许R18/仅R18
+   - **额外过滤R18G**: 在允许 R18 时也可单独拦截 R18G
+   - **单条合并消息**: 搜索完成后仅发送一条合并转发消息（默认开启）
    - **返回图片数量**: 1-10张，默认1张
    - **AI作品显示**: 是否显示AI生成作品
    - **质量过滤**: 可选发送原画|大图|缩略图
@@ -228,17 +230,21 @@
 | `fanbox_data_source` | Fanbox 数据源：`auto`/`official`/`nekohouse` | auto |
 | `return_count` | 每次搜索返回的图片数量 (1-10) | 1 |
 | `r18_mode` | R18内容处理模式 | 过滤 R18 |
+| `filter_r18g_only` | 是否额外过滤 R18G | false |
 | `ai_filter_mode` | AI作品显示设置 | 显示 AI 作品 |
+| `ai_detection_mode` | AI判定策略：`field_or_tag`/`field_only`/`tag_only` | field_or_tag |
 | `deep_search_depth` | 深度搜索时搜索页数深度 (-1无限制, 0-50) | 3 |
 | `show_details` | 是否在发送图片时附带详细信息 | true |
 | `forward_threshold` | 是否启用消息转发功能 | false |
 | `show_filter_result` | 是否显示过滤内容提示 | true |
+| `single_response_mode` | 是否仅在搜索完成后发送一条合并消息 | true |
 | `image_send_method` | 图片发送方式：`url`/`file`/`byte`（升级旧版本建议设为 `byte` 或 `file`） | url |
 | `image_quality` | 默认发送的图片质量 (original/large/medium) | medium |
 | `pil_compress_quality` | 本地 PIL 压缩百分比(1-100，仅file/byte生效，100为不压缩) | 100 |
 | `pil_compress_target_kb` | 本地 PIL 目标大小KB(>0优先按大小压缩，仅file/byte生效) | 0 |
 | `refresh_token_interval_minutes` | 自动刷新 Refresh Token 的间隔时间（分钟） | 180 |
 | `subscription_enabled` | 是否启用订阅功能 | true |
+| `subscription_force_forward` | 订阅消息是否强制使用合并转发（即便仅一条） | true |
 | `subscription_check_interval_minutes` | 订阅更新检查间隔（分钟） | 30 |
 | `proxy` | 网络代理地址，如 `http://127.0.0.1:7890` | 留空 |
 | `image_proxy_host` | 图片反代服务器地址 | i.pixiv.re |

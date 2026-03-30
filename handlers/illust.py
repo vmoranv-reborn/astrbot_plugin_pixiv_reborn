@@ -82,11 +82,14 @@ class IllustHandler:
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
+                ai_detection_mode=self.pixiv_config.ai_detection_mode,
                 display_tag_str=display_tags,
                 return_count=self.pixiv_config.return_count,
                 logger=logger,
                 show_filter_result=self.pixiv_config.show_filter_result,
+                single_response_mode=self.pixiv_config.single_response_mode,
                 excluded_tags=exclude_tags or [],
                 forward_threshold=self.pixiv_config.forward_threshold,
                 show_details=self.pixiv_config.show_details,
@@ -169,11 +172,14 @@ class IllustHandler:
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
+                ai_detection_mode=self.pixiv_config.ai_detection_mode,
                 display_tag_str=f"新{content_type}",
                 return_count=self.pixiv_config.return_count,
                 logger=logger,
                 show_filter_result=self.pixiv_config.show_filter_result,
+                single_response_mode=self.pixiv_config.single_response_mode,
                 excluded_tags=[],
                 forward_threshold=self.pixiv_config.forward_threshold,
                 show_details=self.pixiv_config.show_details,
@@ -220,11 +226,14 @@ class IllustHandler:
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
+                ai_detection_mode=self.pixiv_config.ai_detection_mode,
                 display_tag_str="推荐",
                 return_count=self.pixiv_config.return_count,
                 logger=logger,
                 show_filter_result=self.pixiv_config.show_filter_result,
+                single_response_mode=self.pixiv_config.single_response_mode,
                 excluded_tags=[],
                 forward_threshold=self.pixiv_config.forward_threshold,
                 show_details=self.pixiv_config.show_details,
@@ -303,9 +312,10 @@ class IllustHandler:
         page_limit_msg = (
             f"将获取 {deepth} 页结果" if deepth != -1 else "将获取所有页面的结果"
         )
-        yield event.plain_result(
-            f"{search_phase_msg}，{filter_phase_msg} {page_limit_msg}，这可能需要一些时间..."
-        )
+        if not self.pixiv_config.single_response_mode:
+            yield event.plain_result(
+                f"{search_phase_msg}，{filter_phase_msg} {page_limit_msg}，这可能需要一些时间..."
+            )
 
         try:
             all_illusts_from_first_tag = []
@@ -405,11 +415,14 @@ class IllustHandler:
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
+                ai_detection_mode=self.pixiv_config.ai_detection_mode,
                 display_tag_str=display_tag_str,
                 return_count=self.pixiv_config.return_count,
                 logger=logger,
                 show_filter_result=self.pixiv_config.show_filter_result,
+                single_response_mode=self.pixiv_config.single_response_mode,
                 excluded_tags=exclude_tags or [],
                 forward_threshold=self.pixiv_config.forward_threshold,
                 show_details=self.pixiv_config.show_details,
@@ -473,11 +486,14 @@ class IllustHandler:
             # 统一使用 filter_illusts_with_reason 进行过滤和提示
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
+                ai_detection_mode=self.pixiv_config.ai_detection_mode,
                 display_tag_str=f"ID:{illust_id}",
                 return_count=self.pixiv_config.return_count,
                 logger=logger,
                 show_filter_result=self.pixiv_config.show_filter_result,
+                single_response_mode=self.pixiv_config.single_response_mode,
                 show_details=self.pixiv_config.show_details,
                 excluded_tags=[],
             )
@@ -572,9 +588,17 @@ class IllustHandler:
                 return
 
         # 检查 R18 权限
-        if "r18" in mode and self.pixiv_config.r18_mode == "过滤 R18":
+        if (
+            "r18" in mode
+            and self.pixiv_config.r18_mode == "过滤 R18"
+        ):
             yield event.plain_result(
                 "当前 R18 模式设置为「过滤 R18」，无法使用 R18 相关排行榜。"
+            )
+            return
+        if "r18g" in mode and self.pixiv_config.filter_r18g_only:
+            yield event.plain_result(
+                "当前已开启「额外过滤 R18G」，无法使用 R18G 相关排行榜。"
             )
             return
 
@@ -619,11 +643,14 @@ class IllustHandler:
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
+                ai_detection_mode=self.pixiv_config.ai_detection_mode,
                 display_tag_str=f"排行榜:{mode}",
                 return_count=self.pixiv_config.return_count,
                 logger=logger,
                 show_filter_result=self.pixiv_config.show_filter_result,
+                single_response_mode=self.pixiv_config.single_response_mode,
                 excluded_tags=[],
                 forward_threshold=self.pixiv_config.forward_threshold,
                 show_details=self.pixiv_config.show_details,
@@ -680,11 +707,14 @@ class IllustHandler:
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
+                ai_detection_mode=self.pixiv_config.ai_detection_mode,
                 display_tag_str=f"相关:{illust_id}",
                 return_count=self.pixiv_config.return_count,
                 logger=logger,
                 show_filter_result=self.pixiv_config.show_filter_result,
+                single_response_mode=self.pixiv_config.single_response_mode,
                 excluded_tags=[],
                 forward_threshold=self.pixiv_config.forward_threshold,
                 show_details=self.pixiv_config.show_details,
@@ -749,14 +779,15 @@ class IllustHandler:
         )
 
         # 搜索前发送提示消息
-        if deep_search_depth == -1:
-            yield event.plain_result(
-                f"正在深度搜索标签「{tag_str}」，将获取所有页面的结果，这可能需要一些时间..."
-            )
-        else:
-            yield event.plain_result(
-                f"正在深度搜索标签「{tag_str}」，将获取 {deep_search_depth} 页结果，这可能需要一些时间..."
-            )
+        if not self.pixiv_config.single_response_mode:
+            if deep_search_depth == -1:
+                yield event.plain_result(
+                    f"正在深度搜索标签「{tag_str}」，将获取所有页面的结果，这可能需要一些时间..."
+                )
+            else:
+                yield event.plain_result(
+                    f"正在深度搜索标签「{tag_str}」，将获取 {deep_search_depth} 页结果，这可能需要一些时间..."
+                )
 
         try:
             # 准备搜索参数
@@ -796,7 +827,10 @@ class IllustHandler:
                     )
 
                     # 发送进度更新
-                    if page_count % 3 == 0:
+                    if (
+                        page_count % 3 == 0
+                        and not self.pixiv_config.single_response_mode
+                    ):
                         yield event.plain_result(
                             f"搜索进行中：已获取 {page_count} 页，共 {len(all_illusts)} 个结果..."
                         )
@@ -821,18 +855,22 @@ class IllustHandler:
             logger.info(
                 f"Pixiv 插件：深度搜索完成，共找到 {initial_count} 个插画，开始过滤处理..."
             )
-            yield event.plain_result(
-                f"搜索完成！共获取 {page_count} 页，找到 {initial_count} 个结果，正在处理..."
-            )
+            if not self.pixiv_config.single_response_mode:
+                yield event.plain_result(
+                    f"搜索完成！共获取 {page_count} 页，找到 {initial_count} 个结果，正在处理..."
+                )
 
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
+                ai_detection_mode=self.pixiv_config.ai_detection_mode,
                 display_tag_str=display_tags,
                 return_count=self.pixiv_config.return_count,
                 logger=logger,
                 show_filter_result=self.pixiv_config.show_filter_result,
+                single_response_mode=self.pixiv_config.single_response_mode,
                 excluded_tags=exclude_tags or [],
                 forward_threshold=self.pixiv_config.forward_threshold,
                 show_details=self.pixiv_config.show_details,
@@ -1326,10 +1364,11 @@ class IllustHandler:
             f"Pixiv热度搜索 - 标签: {search_tags}, 时间: {duration_param}, 页数: {pages_to_fetch}"
         )
 
-        yield event.plain_result(
-            f"🔥 正在搜索「{display_tags}」{duration_display[duration_param]}的热门作品...\n"
-            f"将抓取 {pages_to_fetch} 页数据并按收藏数排序，请稍候..."
-        )
+        if not self.pixiv_config.single_response_mode:
+            yield event.plain_result(
+                f"🔥 正在搜索「{display_tags}」{duration_display[duration_param]}的热门作品...\n"
+                f"将抓取 {pages_to_fetch} 页数据并按收藏数排序，请稍候..."
+            )
 
         try:
             all_illusts = []
@@ -1399,19 +1438,23 @@ class IllustHandler:
                 f"热度搜索完成，共 {len(sorted_illusts)} 个作品，已按收藏数排序"
             )
 
-            top_bookmark = getattr(sorted_illusts[0], "total_bookmarks", 0)
-            yield event.plain_result(
-                f"✅ 搜索完成！共找到 {len(sorted_illusts)} 个作品\n"
-                f"🏆 最高收藏数: {top_bookmark}\n正在发送热门作品..."
-            )
+            if not self.pixiv_config.single_response_mode:
+                top_bookmark = getattr(sorted_illusts[0], "total_bookmarks", 0)
+                yield event.plain_result(
+                    f"✅ 搜索完成！共找到 {len(sorted_illusts)} 个作品\n"
+                    f"🏆 最高收藏数: {top_bookmark}\n正在发送热门作品..."
+                )
 
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
+                ai_detection_mode=self.pixiv_config.ai_detection_mode,
                 display_tag_str=display_tags,
                 return_count=self.pixiv_config.return_count,
                 logger=logger,
                 show_filter_result=self.pixiv_config.show_filter_result,
+                single_response_mode=self.pixiv_config.single_response_mode,
                 excluded_tags=exclude_tags or [],
                 forward_threshold=self.pixiv_config.forward_threshold,
                 show_details=self.pixiv_config.show_details,

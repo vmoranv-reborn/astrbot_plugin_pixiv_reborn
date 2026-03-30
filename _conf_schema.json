@@ -59,6 +59,12 @@
           "仅 R18"
       ]
   },
+  "filter_r18g_only": {
+      "description": "额外过滤 R18G",
+      "type": "bool",
+      "hint": "开启后会额外过滤 R18G 内容。在 r18_mode=过滤 R18 时生效。",
+      "default": false
+  },
   "ai_filter_mode": {
       "description": "AI 生成作品过滤模式",
       "type": "string",
@@ -68,6 +74,17 @@
           "显示 AI 作品",
           "过滤 AI 作品",
           "仅 AI 作品"
+      ]
+  },
+  "ai_detection_mode": {
+      "description": "AI 判定模式",
+      "type": "string",
+      "hint": "field_or_tag=字段或标签任一命中；field_only=仅看 illust_ai_type；tag_only=仅看标签关键词。",
+      "default": "field_or_tag",
+      "options": [
+          "field_or_tag",
+          "field_only",
+          "tag_only"
       ]
   },
   "deep_search_depth": {
@@ -94,6 +111,12 @@
       "description": "是否显示过滤内容提示",
       "type": "bool",
       "hint": "设置为 true 时，过滤内容时会输出提示信息；false 则不输出。",
+      "default": true
+  },
+  "single_response_mode": {
+      "description": "单条合并消息模式",
+      "type": "bool",
+      "hint": "设置为 true 时，搜索完成后仅发送一条合并转发消息（包含汇总与图片），不发送中途进度提示。",
       "default": true
   },
   "image_quality": {
@@ -146,6 +169,12 @@
       "description": "是否启用订阅功能",
       "type": "bool",
       "hint": "启用后，用户将能够订阅画师和标签，并接收更新推送。",
+      "default": true
+  },
+  "subscription_force_forward": {
+      "description": "订阅消息强制使用合并转发",
+      "type": "bool",
+      "hint": "设置为 true 时，订阅更新始终以合并转发消息发送，用于避免图片直接出现在群聊。",
       "default": true
   },
   "subscription_check_interval_minutes": {

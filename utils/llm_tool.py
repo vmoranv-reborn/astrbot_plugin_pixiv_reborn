@@ -164,13 +164,22 @@ class PixivIllustSearchTool(FunctionTool[AstrAgentContext]):
         logger.info(f"PixivIllustSearchTool: 准备发送 {count} 张图片")
         config = FilterConfig(
             r18_mode=self.pixiv_config.r18_mode if self.pixiv_config else "过滤 R18",
+            filter_r18g_only=self.pixiv_config.filter_r18g_only
+            if self.pixiv_config
+            else False,
             ai_filter_mode=self.pixiv_config.ai_filter_mode
             if self.pixiv_config
             else "过滤 AI 作品",
+            ai_detection_mode=self.pixiv_config.ai_detection_mode
+            if self.pixiv_config
+            else "field_or_tag",
             display_tag_str=f"搜索:{query}",
             return_count=count,
             logger=logger,
             show_filter_result=False,
+            single_response_mode=self.pixiv_config.single_response_mode
+            if self.pixiv_config
+            else False,
             excluded_tags=[],
             forward_threshold=self.pixiv_config.forward_threshold
             if self.pixiv_config

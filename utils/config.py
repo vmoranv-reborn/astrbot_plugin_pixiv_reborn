@@ -88,8 +88,11 @@ class PixivConfig:
         self.refresh_token = self.config.get("refresh_token", None)
         self.return_count = self.config.get("return_count", 1)
         self.r18_mode = self.config.get("r18_mode", "过滤 R18")
+        self.filter_r18g_only = self.config.get("filter_r18g_only", False)
         self.ai_filter_mode = self.config.get("ai_filter_mode", "过滤 AI 作品")
+        self.ai_detection_mode = self.config.get("ai_detection_mode", "field_or_tag")
         self.show_filter_result = self.config.get("show_filter_result", True)
+        self.single_response_mode = self.config.get("single_response_mode", True)
         self.show_details = self.config.get("show_details", True)
         self.deep_search_depth = self.config.get("deep_search_depth", 3)
         self.forward_threshold = self.config.get("forward_threshold", False)
@@ -115,6 +118,9 @@ class PixivConfig:
         self.pil_compress_target_kb = self.config.get("pil_compress_target_kb", 0)
         self.refresh_interval = self.config.get("refresh_token_interval_minutes", 180)
         self.subscription_enabled = self.config.get("subscription_enabled", True)
+        self.subscription_force_forward = self.config.get(
+            "subscription_force_forward", True
+        )
         self.subscription_check_interval_minutes = self.config.get(
             "subscription_check_interval_minutes", 30
         )
@@ -160,9 +166,13 @@ class PixivConfig:
         return (
             f"refresh_token={'已设置' if self.refresh_token else '未设置'}, "
             f"return_count={self.return_count}, r18_mode='{self.r18_mode}', "
-            f"ai_filter_mode='{self.ai_filter_mode}', show_details={self.show_details}, "
+            f"filter_r18g_only={self.filter_r18g_only}, "
+            f"single_response_mode={self.single_response_mode}, "
+            f"ai_filter_mode='{self.ai_filter_mode}', "
+            f"ai_detection_mode='{self.ai_detection_mode}', show_details={self.show_details}, "
             f"refresh_interval={self.refresh_interval} 分钟, "
             f"subscription_enabled={self.subscription_enabled}, "
+            f"subscription_force_forward={self.subscription_force_forward}, "
             f"proxy='{effective_proxy or '未使用'}', "
             f"fanbox_sessid={'已设置' if self.fanbox_sessid else '未设置'}, "
             f"fanbox_cookie={'已设置' if self.fanbox_cookie else '未设置'}, "
@@ -190,12 +200,18 @@ class PixivConfigManager:
         self.config = config
         self.schema = {
             "r18_mode": {"type": "enum", "choices": ["过滤 R18", "允许 R18", "仅 R18"]},
+            "filter_r18g_only": {"type": "bool"},
             "ai_filter_mode": {
                 "type": "enum",
                 "choices": ["显示 AI 作品", "过滤 AI 作品", "仅 AI 作品"],
             },
+            "ai_detection_mode": {
+                "type": "enum",
+                "choices": ["field_or_tag", "field_only", "tag_only"],
+            },
             "return_count": {"type": "int", "min": 1, "max": 30},
             "show_filter_result": {"type": "bool"},
+            "single_response_mode": {"type": "bool"},
             "show_details": {"type": "bool"},
             "deep_search_depth": {"type": "int", "min": -1, "max": 50},
             "forward_threshold": {"type": "bool"},
@@ -206,6 +222,7 @@ class PixivConfigManager:
             "pil_compress_quality": {"type": "int", "min": 1, "max": 100},
             "pil_compress_target_kb": {"type": "int", "min": 0, "max": 20480},
             "subscription_enabled": {"type": "bool"},
+            "subscription_force_forward": {"type": "bool"},
             "fanbox_data_source": {
                 "type": "enum",
                 "choices": ["auto", "official", "nekohouse"],
@@ -251,8 +268,11 @@ class PixivConfigManager:
         display_keys = [
             "return_count",
             "r18_mode",
+            "filter_r18g_only",
             "ai_filter_mode",
+            "ai_detection_mode",
             "show_filter_result",
+            "single_response_mode",
             "show_details",
             "deep_search_depth",
             "forward_threshold",
@@ -261,6 +281,7 @@ class PixivConfigManager:
             "pil_compress_quality",
             "pil_compress_target_kb",
             "subscription_enabled",
+            "subscription_force_forward",
             "fanbox_data_source",
             "fanbox_user_agent",
             "random_search_min_interval",
