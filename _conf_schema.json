@@ -76,6 +76,17 @@
           "仅 AI 作品"
       ]
   },
+  "ai_detection_mode": {
+      "description": "AI 判定模式",
+      "type": "string",
+      "hint": "field_or_tag=字段或标签任一命中；field_only=仅看 illust_ai_type；tag_only=仅看标签关键词。",
+      "default": "field_or_tag",
+      "options": [
+          "field_or_tag",
+          "field_only",
+          "tag_only"
+      ]
+  },
   "deep_search_depth": {
       "description": "深度搜索时搜索页数深度",
       "type": "int", 

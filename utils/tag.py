@@ -19,6 +19,7 @@ class FilterConfig:
 
     r18_mode: str
     ai_filter_mode: str
+    ai_detection_mode: str = "field_or_tag"
     display_tag_str: Optional[str] = None
     first_tag: Optional[str] = None
     all_illusts_from_first_tag: Optional[List] = None
@@ -110,14 +111,16 @@ def is_r18(item):
     return False
 
 
-def is_ai(item):
-    """检查作品是否为AI生成内容"""
+def _is_ai_by_field(item):
+    """根据 Pixiv 字段判断 AI。"""
     ai_type = _to_int(
         _get_value(item, "illust_ai_type", "illustAiType", "ai_type", "aiType")
     )
-    if ai_type is not None and ai_type > 0:
-        return True
+    return ai_type is not None and ai_type > 0
 
+
+def _is_ai_by_tag(item):
+    """根据标签判断 AI。"""
     for name in _extract_tag_names(_get_value(item, "tags") or []):
         lname = name.lower()
         # 精确匹配或作为独立词匹配
@@ -130,6 +133,17 @@ def is_ai(item):
         ):
             return True
     return False
+
+
+def is_ai(item, detection_mode: str = "field_or_tag"):
+    """检查作品是否为AI生成内容。"""
+    mode = (detection_mode or "field_or_tag").strip().lower()
+    if mode == "field_only":
+        return _is_ai_by_field(item)
+    if mode == "tag_only":
+        return _is_ai_by_tag(item)
+    # 默认：field_or_tag
+    return _is_ai_by_field(item) or _is_ai_by_tag(item)
 
 
 def is_r18g(item):
@@ -166,9 +180,13 @@ def _apply_filters(item, config: FilterConfig) -> bool:
         return False
     if config.r18_mode == "仅 R18" and not is_r18(item):
         return False
-    if config.ai_filter_mode == "过滤 AI 作品" and is_ai(item):
+    if config.ai_filter_mode == "过滤 AI 作品" and is_ai(
+        item, config.ai_detection_mode
+    ):
         return False
-    if config.ai_filter_mode == "仅 AI 作品" and not is_ai(item):
+    if config.ai_filter_mode == "仅 AI 作品" and not is_ai(
+        item, config.ai_detection_mode
+    ):
         return False
     if config.excluded_tags and has_excluded_tags(item, config.excluded_tags):
         return False
@@ -225,11 +243,15 @@ def _generate_no_result_messages(
         no_result_reason.append("R18G 内容")
     if config.r18_mode == "过滤 R18" and any(is_r18(i) for i in illusts):
         no_result_reason.append("R18 内容")
-    if config.ai_filter_mode == "过滤 AI 作品" and any(is_ai(i) for i in illusts):
+    if config.ai_filter_mode == "过滤 AI 作品" and any(
+        is_ai(i, config.ai_detection_mode) for i in illusts
+    ):
         no_result_reason.append("AI 作品")
     if config.r18_mode == "仅 R18" and not any(is_r18(i) for i in illusts):
         no_result_reason.append("非 R18 内容")
-    if config.ai_filter_mode == "仅 AI 作品" and not any(is_ai(i) for i in illusts):
+    if config.ai_filter_mode == "仅 AI 作品" and not any(
+        is_ai(i, config.ai_detection_mode) for i in illusts
+    ):
         no_result_reason.append("非 AI 作品")
     if config.excluded_tags and any(
         has_excluded_tags(i, config.excluded_tags) for i in illusts

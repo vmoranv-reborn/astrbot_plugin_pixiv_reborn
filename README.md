@@ -231,6 +231,7 @@
 | `r18_mode` | R18内容处理模式 | 过滤 R18 |
 | `filter_r18g_only` | 是否额外过滤 R18G | false |
 | `ai_filter_mode` | AI作品显示设置 | 显示 AI 作品 |
+| `ai_detection_mode` | AI判定策略：`field_or_tag`/`field_only`/`tag_only` | field_or_tag |
 | `deep_search_depth` | 深度搜索时搜索页数深度 (-1无限制, 0-50) | 3 |
 | `show_details` | 是否在发送图片时附带详细信息 | true |
 | `forward_threshold` | 是否启用消息转发功能 | false |

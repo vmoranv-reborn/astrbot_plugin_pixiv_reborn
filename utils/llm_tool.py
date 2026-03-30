@@ -170,6 +170,9 @@ class PixivIllustSearchTool(FunctionTool[AstrAgentContext]):
             ai_filter_mode=self.pixiv_config.ai_filter_mode
             if self.pixiv_config
             else "过滤 AI 作品",
+            ai_detection_mode=self.pixiv_config.ai_detection_mode
+            if self.pixiv_config
+            else "field_or_tag",
             display_tag_str=f"搜索:{query}",
             return_count=count,
             logger=logger,

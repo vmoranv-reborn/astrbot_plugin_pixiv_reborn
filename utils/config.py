@@ -90,6 +90,7 @@ class PixivConfig:
         self.r18_mode = self.config.get("r18_mode", "过滤 R18")
         self.filter_r18g_only = self.config.get("filter_r18g_only", False)
         self.ai_filter_mode = self.config.get("ai_filter_mode", "过滤 AI 作品")
+        self.ai_detection_mode = self.config.get("ai_detection_mode", "field_or_tag")
         self.show_filter_result = self.config.get("show_filter_result", True)
         self.show_details = self.config.get("show_details", True)
         self.deep_search_depth = self.config.get("deep_search_depth", 3)
@@ -162,7 +163,8 @@ class PixivConfig:
             f"refresh_token={'已设置' if self.refresh_token else '未设置'}, "
             f"return_count={self.return_count}, r18_mode='{self.r18_mode}', "
             f"filter_r18g_only={self.filter_r18g_only}, "
-            f"ai_filter_mode='{self.ai_filter_mode}', show_details={self.show_details}, "
+            f"ai_filter_mode='{self.ai_filter_mode}', "
+            f"ai_detection_mode='{self.ai_detection_mode}', show_details={self.show_details}, "
             f"refresh_interval={self.refresh_interval} 分钟, "
             f"subscription_enabled={self.subscription_enabled}, "
             f"proxy='{effective_proxy or '未使用'}', "
@@ -196,6 +198,10 @@ class PixivConfigManager:
             "ai_filter_mode": {
                 "type": "enum",
                 "choices": ["显示 AI 作品", "过滤 AI 作品", "仅 AI 作品"],
+            },
+            "ai_detection_mode": {
+                "type": "enum",
+                "choices": ["field_or_tag", "field_only", "tag_only"],
             },
             "return_count": {"type": "int", "min": 1, "max": 30},
             "show_filter_result": {"type": "bool"},
@@ -256,6 +262,7 @@ class PixivConfigManager:
             "r18_mode",
             "filter_r18g_only",
             "ai_filter_mode",
+            "ai_detection_mode",
             "show_filter_result",
             "show_details",
             "deep_search_depth",
