@@ -108,6 +108,7 @@
    - **Fanbox 数据源模式**: `auto`（默认，官方优先失败回退 Nekohouse）/`official`（仅官方）/`nekohouse`（仅归档）
    - **R18 过滤模式**: 过滤R18/允许R18/仅R18
    - **额外过滤R18G**: 在允许 R18 时也可单独拦截 R18G
+   - **单条合并消息**: 搜索完成后仅发送一条合并转发消息（默认开启）
    - **返回图片数量**: 1-10张，默认1张
    - **AI作品显示**: 是否显示AI生成作品
    - **质量过滤**: 可选发送原画|大图|缩略图
@@ -236,6 +237,7 @@
 | `show_details` | 是否在发送图片时附带详细信息 | true |
 | `forward_threshold` | 是否启用消息转发功能 | false |
 | `show_filter_result` | 是否显示过滤内容提示 | true |
+| `single_response_mode` | 是否仅在搜索完成后发送一条合并消息 | true |
 | `image_send_method` | 图片发送方式：`url`/`file`/`byte`（升级旧版本建议设为 `byte` 或 `file`） | url |
 | `image_quality` | 默认发送的图片质量 (original/large/medium) | medium |
 | `pil_compress_quality` | 本地 PIL 压缩百分比(1-100，仅file/byte生效，100为不压缩) | 100 |

@@ -28,6 +28,7 @@ class FilterConfig:
     show_filter_result: bool = True
     excluded_tags: Optional[List[str]] = None
     filter_r18g_only: bool = False
+    single_response_mode: bool = False
     forward_threshold: bool = False
     show_details: bool = True
 
@@ -111,6 +112,26 @@ def is_r18(item):
     return False
 
 
+def is_r18g(item):
+    """检查作品是否为R18G内容"""
+    x_restrict = _to_int(_get_value(item, "x_restrict", "xRestrict"))
+    if x_restrict is not None and x_restrict >= 2:
+        return True
+
+    for name in _extract_tag_names(_get_value(item, "tags") or []):
+        lname = name.lower()
+        # 精确匹配或作为独立词匹配
+        if lname in R18G_BADWORDS or any(
+            bad
+            for bad in R18G_BADWORDS
+            if f" {bad} " in f" {lname} "
+            or lname.startswith(f"{bad} ")
+            or lname.endswith(f" {bad}")
+        ):
+            return True
+    return False
+
+
 def _is_ai_by_field(item):
     """根据 Pixiv 字段判断 AI。"""
     ai_type = _to_int(
@@ -146,26 +167,6 @@ def is_ai(item, detection_mode: str = "field_or_tag"):
     return _is_ai_by_field(item) or _is_ai_by_tag(item)
 
 
-def is_r18g(item):
-    """检查作品是否为R18G内容"""
-    x_restrict = _to_int(_get_value(item, "x_restrict", "xRestrict"))
-    if x_restrict is not None and x_restrict >= 2:
-        return True
-
-    for name in _extract_tag_names(_get_value(item, "tags") or []):
-        lname = name.lower()
-        # 精确匹配或作为独立词匹配
-        if lname in R18G_BADWORDS or any(
-            bad
-            for bad in R18G_BADWORDS
-            if f" {bad} " in f" {lname} "
-            or lname.startswith(f"{bad} ")
-            or lname.endswith(f" {bad}")
-        ):
-            return True
-    return False
-
-
 def is_ugoira(item):
     """检查作品是否为动图（ugoira）"""
     return getattr(item, "type", None) == "ugoira"
@@ -173,6 +174,7 @@ def is_ugoira(item):
 
 def _apply_filters(item, config: FilterConfig) -> bool:
     """应用所有过滤条件"""
+    # 单独开关：额外过滤 R18G（不覆盖 r18_mode 逻辑）。
     if config.filter_r18g_only and is_r18g(item):
         return False
 
@@ -297,6 +299,18 @@ def filter_illusts_with_reason(illusts, config: FilterConfig):
     )
 
     return filtered_list, filter_msgs
+
+
+def _build_single_response_summary(
+    initial_count: int, filtered_count: int, send_count: int, filter_msgs: List[str]
+) -> str:
+    """构建单消息模式下的汇总文本。"""
+    summary_lines = [
+        f"搜索完成：初始结果 {initial_count} 个，过滤后 {filtered_count} 个，准备发送 {send_count} 个。"
+    ]
+    if filter_msgs:
+        summary_lines.extend(filter_msgs)
+    return "\n".join(summary_lines)
 
 
 def format_tags(tags) -> str:
@@ -441,6 +455,49 @@ async def process_and_send_illusts(
 
     # 应用过滤
     filtered_illusts, filter_msgs = filter_illusts_with_reason(initial_illusts, config)
+    initial_count = len(initial_illusts)
+    filtered_count = len(filtered_illusts)
+
+    if config.single_response_mode:
+        if not filtered_illusts:
+            no_result_msg = (
+                "\n".join(filter_msgs)
+                if filter_msgs
+                else "筛选后没有符合条件的作品可发送。"
+            )
+            yield _wrap_result(event.plain_result(no_result_msg), [])
+            return
+
+        illusts_to_send = sample_illusts(
+            filtered_illusts, config.return_count, shuffle=True
+        )
+        if not illusts_to_send:
+            yield _wrap_result(event.plain_result("筛选后没有符合条件的作品可发送。"), [])
+            return
+
+        related_ids = []
+        for illust in illusts_to_send:
+            illust_id = _get_illust_id(illust)
+            if illust_id is not None:
+                related_ids.append(illust_id)
+
+        summary_text = _build_single_response_summary(
+            initial_count,
+            filtered_count,
+            len(illusts_to_send),
+            filter_msgs if config.show_filter_result else [],
+        )
+
+        async for result in send_forward_message_func(
+            client,
+            event,
+            illusts_to_send,
+            lambda illust: build_detail_message_func(illust, is_novel=is_novel),
+            summary_text=summary_text,
+            single_batch=True,
+        ):
+            yield _wrap_result(result, related_ids)
+        return
 
     # 发送过滤消息
     if config.show_filter_result:
@@ -640,6 +697,41 @@ async def process_and_send_illusts_sorted(
     处理已排序的作品列表并发送
     """
     filtered_illusts, filter_msgs = filter_illusts_with_reason(sorted_illusts, config)
+    initial_count = len(sorted_illusts)
+    filtered_count = len(filtered_illusts)
+
+    if config.single_response_mode:
+        if not filtered_illusts:
+            no_result_msg = (
+                "\n".join(filter_msgs)
+                if filter_msgs
+                else "筛选后没有符合条件的作品可发送。"
+            )
+            yield event.plain_result(no_result_msg)
+            return
+
+        count_to_send = min(len(filtered_illusts), config.return_count)
+        illusts_to_send = filtered_illusts[:count_to_send]
+        if not illusts_to_send:
+            yield event.plain_result("筛选后没有符合条件的作品可发送。")
+            return
+
+        summary_text = _build_single_response_summary(
+            initial_count,
+            filtered_count,
+            len(illusts_to_send),
+            filter_msgs if config.show_filter_result else [],
+        )
+        async for result in send_forward_message_func(
+            client,
+            event,
+            illusts_to_send,
+            lambda illust: build_detail_message_func(illust, is_novel=is_novel),
+            summary_text=summary_text,
+            single_batch=True,
+        ):
+            yield result
+        return
 
     if config.show_filter_result:
         for msg in filter_msgs:

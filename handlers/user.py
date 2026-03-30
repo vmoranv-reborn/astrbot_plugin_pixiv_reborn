@@ -79,6 +79,7 @@ class UserHandler:
                 return_count=self.pixiv_config.return_count,
                 logger=logger,
                 show_filter_result=self.pixiv_config.show_filter_result,
+                single_response_mode=self.pixiv_config.single_response_mode,
                 excluded_tags=[],
             )
             filtered_illusts, filter_msgs = filter_items(illusts, config)
@@ -223,6 +224,7 @@ class UserHandler:
                 return_count=self.pixiv_config.return_count,
                 logger=logger,
                 show_filter_result=self.pixiv_config.show_filter_result,
+                single_response_mode=self.pixiv_config.single_response_mode,
                 excluded_tags=[],
                 forward_threshold=self.pixiv_config.forward_threshold,
                 show_details=self.pixiv_config.show_details,

@@ -92,6 +92,7 @@ class PixivConfig:
         self.ai_filter_mode = self.config.get("ai_filter_mode", "过滤 AI 作品")
         self.ai_detection_mode = self.config.get("ai_detection_mode", "field_or_tag")
         self.show_filter_result = self.config.get("show_filter_result", True)
+        self.single_response_mode = self.config.get("single_response_mode", True)
         self.show_details = self.config.get("show_details", True)
         self.deep_search_depth = self.config.get("deep_search_depth", 3)
         self.forward_threshold = self.config.get("forward_threshold", False)
@@ -163,6 +164,7 @@ class PixivConfig:
             f"refresh_token={'已设置' if self.refresh_token else '未设置'}, "
             f"return_count={self.return_count}, r18_mode='{self.r18_mode}', "
             f"filter_r18g_only={self.filter_r18g_only}, "
+            f"single_response_mode={self.single_response_mode}, "
             f"ai_filter_mode='{self.ai_filter_mode}', "
             f"ai_detection_mode='{self.ai_detection_mode}', show_details={self.show_details}, "
             f"refresh_interval={self.refresh_interval} 分钟, "
@@ -205,6 +207,7 @@ class PixivConfigManager:
             },
             "return_count": {"type": "int", "min": 1, "max": 30},
             "show_filter_result": {"type": "bool"},
+            "single_response_mode": {"type": "bool"},
             "show_details": {"type": "bool"},
             "deep_search_depth": {"type": "int", "min": -1, "max": 50},
             "forward_threshold": {"type": "bool"},
@@ -264,6 +267,7 @@ class PixivConfigManager:
             "ai_filter_mode",
             "ai_detection_mode",
             "show_filter_result",
+            "single_response_mode",
             "show_details",
             "deep_search_depth",
             "forward_threshold",

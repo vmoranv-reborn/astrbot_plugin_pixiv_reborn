@@ -113,6 +113,12 @@
       "hint": "设置为 true 时，过滤内容时会输出提示信息；false 则不输出。",
       "default": true
   },
+  "single_response_mode": {
+      "description": "单条合并消息模式",
+      "type": "bool",
+      "hint": "设置为 true 时，搜索完成后仅发送一条合并转发消息（包含汇总与图片），不发送中途进度提示。",
+      "default": true
+  },
   "image_quality": {
       "description": "默认发送的图片质量",
       "type": "string",

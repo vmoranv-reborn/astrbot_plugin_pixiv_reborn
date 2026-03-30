@@ -177,6 +177,9 @@ class PixivIllustSearchTool(FunctionTool[AstrAgentContext]):
             return_count=count,
             logger=logger,
             show_filter_result=False,
+            single_response_mode=self.pixiv_config.single_response_mode
+            if self.pixiv_config
+            else False,
             excluded_tags=[],
             forward_threshold=self.pixiv_config.forward_threshold
             if self.pixiv_config

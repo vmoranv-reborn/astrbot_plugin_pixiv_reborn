@@ -76,6 +76,7 @@ def filter_items(items, tag_label, excluded_tags=None):
         return_count=_config.return_count,
         logger=logger,
         show_filter_result=_config.show_filter_result,
+        single_response_mode=_config.single_response_mode,
         excluded_tags=excluded_tags or [],
     )
 
@@ -792,12 +793,14 @@ async def send_forward_message(
     images,
     build_detail_message_func,
     send_all_pages: bool = False,
+    summary_text: Optional[str] = None,
+    single_batch: bool = False,
 ):
     """
     直接下载图片并组装 nodes，避免不兼容消息类型。
     自动检测动图并使用相应的处理方式。
     """
-    batch_size = 10
+    batch_size = len(images) if single_batch and images else 10
     nickname = "PixivBot"
     # 在处理转发消息之前，先清理可能存在的旧文件
     await clean_temp_dir(_temp_dir, max_files=20)
@@ -833,6 +836,8 @@ async def send_forward_message(
     for i in range(0, len(image_items), batch_size):
         batch_items = image_items[i : i + batch_size]
         nodes_list = []
+        if summary_text and i == 0:
+            nodes_list.append(Node(name=nickname, content=[Plain(summary_text)]))
         async with aiohttp.ClientSession() as session:
             for item_type, img, url_obj, detail_message in batch_items:
                 if item_type == "ugoira":
