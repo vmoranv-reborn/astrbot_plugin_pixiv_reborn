@@ -69,6 +69,7 @@ def filter_items(items, tag_label, excluded_tags=None):
     """
     config = FilterConfig(
         r18_mode=_config.r18_mode,
+        filter_r18g_only=_config.filter_r18g_only,
         ai_filter_mode=_config.ai_filter_mode,
         display_tag_str=tag_label,
         return_count=_config.return_count,

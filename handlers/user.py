@@ -72,6 +72,7 @@ class UserHandler:
             )
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
                 display_tag_str=f"用户:{user.name}",
                 return_count=self.pixiv_config.return_count,
@@ -214,6 +215,7 @@ class UserHandler:
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
                 display_tag_str=f"用户:{user_name}",
                 return_count=self.pixiv_config.return_count,

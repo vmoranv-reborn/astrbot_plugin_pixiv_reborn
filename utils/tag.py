@@ -8,7 +8,8 @@ from typing import List, Optional, Callable
 import random
 
 # R18 与 AI 敏感词列表
-R18_BADWORDS = [s.lower() for s in ["R-18", "R18", "R-18G", "R18G", "R18+", "R18+G"]]
+R18_BADWORDS = [s.lower() for s in ["R-18", "R18", "R18+"]]
+R18G_BADWORDS = [s.lower() for s in ["R-18G", "R18G", "R18+G"]]
 AI_BADWORDS = [s.lower() for s in ["AI", "AI生成", "AI-generated", "AI辅助"]]
 
 
@@ -25,6 +26,7 @@ class FilterConfig:
     logger: Optional[Callable] = None
     show_filter_result: bool = True
     excluded_tags: Optional[List[str]] = None
+    filter_r18g_only: bool = False
     forward_threshold: bool = False
     show_details: bool = True
 
@@ -88,7 +90,7 @@ def _extract_tag_names(tags) -> List[str]:
 
 
 def is_r18(item):
-    """检查作品是否为R18内容"""
+    """检查作品是否为R18内容（包含R18G）"""
     x_restrict = _to_int(_get_value(item, "x_restrict", "xRestrict"))
     if x_restrict is not None and x_restrict > 0:
         return True
@@ -96,9 +98,10 @@ def is_r18(item):
     for name in _extract_tag_names(_get_value(item, "tags") or []):
         lname = name.lower()
         # 精确匹配或作为独立词匹配
-        if lname in R18_BADWORDS or any(
+        all_r18_words = R18_BADWORDS + R18G_BADWORDS
+        if lname in all_r18_words or any(
             bad
-            for bad in R18_BADWORDS
+            for bad in all_r18_words
             if f" {bad} " in f" {lname} "
             or lname.startswith(f"{bad} ")
             or lname.endswith(f" {bad}")
@@ -129,6 +132,26 @@ def is_ai(item):
     return False
 
 
+def is_r18g(item):
+    """检查作品是否为R18G内容"""
+    x_restrict = _to_int(_get_value(item, "x_restrict", "xRestrict"))
+    if x_restrict is not None and x_restrict >= 2:
+        return True
+
+    for name in _extract_tag_names(_get_value(item, "tags") or []):
+        lname = name.lower()
+        # 精确匹配或作为独立词匹配
+        if lname in R18G_BADWORDS or any(
+            bad
+            for bad in R18G_BADWORDS
+            if f" {bad} " in f" {lname} "
+            or lname.startswith(f"{bad} ")
+            or lname.endswith(f" {bad}")
+        ):
+            return True
+    return False
+
+
 def is_ugoira(item):
     """检查作品是否为动图（ugoira）"""
     return getattr(item, "type", None) == "ugoira"
@@ -136,6 +159,9 @@ def is_ugoira(item):
 
 def _apply_filters(item, config: FilterConfig) -> bool:
     """应用所有过滤条件"""
+    if config.filter_r18g_only and is_r18g(item):
+        return False
+
     if config.r18_mode == "过滤 R18" and is_r18(item):
         return False
     if config.r18_mode == "仅 R18" and not is_r18(item):
@@ -163,6 +189,8 @@ def _generate_filter_messages(
         filter_reasons = []
         if config.r18_mode in ["过滤 R18", "仅 R18"]:
             filter_reasons.append("R18")
+        elif config.filter_r18g_only:
+            filter_reasons.append("R18G")
         if config.ai_filter_mode in ["过滤 AI 作品", "仅 AI 作品"]:
             filter_reasons.append("AI")
         if config.excluded_tags:
@@ -193,6 +221,8 @@ def _generate_no_result_messages(
     msgs = []
     no_result_reason = []
 
+    if config.filter_r18g_only and any(is_r18g(i) for i in illusts):
+        no_result_reason.append("R18G 内容")
     if config.r18_mode == "过滤 R18" and any(is_r18(i) for i in illusts):
         no_result_reason.append("R18 内容")
     if config.ai_filter_mode == "过滤 AI 作品" and any(is_ai(i) for i in illusts):

@@ -88,6 +88,7 @@ class PixivConfig:
         self.refresh_token = self.config.get("refresh_token", None)
         self.return_count = self.config.get("return_count", 1)
         self.r18_mode = self.config.get("r18_mode", "过滤 R18")
+        self.filter_r18g_only = self.config.get("filter_r18g_only", False)
         self.ai_filter_mode = self.config.get("ai_filter_mode", "过滤 AI 作品")
         self.show_filter_result = self.config.get("show_filter_result", True)
         self.show_details = self.config.get("show_details", True)
@@ -160,6 +161,7 @@ class PixivConfig:
         return (
             f"refresh_token={'已设置' if self.refresh_token else '未设置'}, "
             f"return_count={self.return_count}, r18_mode='{self.r18_mode}', "
+            f"filter_r18g_only={self.filter_r18g_only}, "
             f"ai_filter_mode='{self.ai_filter_mode}', show_details={self.show_details}, "
             f"refresh_interval={self.refresh_interval} 分钟, "
             f"subscription_enabled={self.subscription_enabled}, "
@@ -190,6 +192,7 @@ class PixivConfigManager:
         self.config = config
         self.schema = {
             "r18_mode": {"type": "enum", "choices": ["过滤 R18", "允许 R18", "仅 R18"]},
+            "filter_r18g_only": {"type": "bool"},
             "ai_filter_mode": {
                 "type": "enum",
                 "choices": ["显示 AI 作品", "过滤 AI 作品", "仅 AI 作品"],
@@ -251,6 +254,7 @@ class PixivConfigManager:
         display_keys = [
             "return_count",
             "r18_mode",
+            "filter_r18g_only",
             "ai_filter_mode",
             "show_filter_result",
             "show_details",

@@ -359,6 +359,7 @@ class RandomSearchService:
             # 发送配置
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
                 display_tag_str=f"随机:{display_tags}",
                 return_count=self.pixiv_config.return_count,
@@ -492,6 +493,7 @@ class RandomSearchService:
 
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
                 display_tag_str=f"随机排行榜:{mode}",
                 return_count=self.pixiv_config.return_count,

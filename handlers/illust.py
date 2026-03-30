@@ -82,6 +82,7 @@ class IllustHandler:
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
                 display_tag_str=display_tags,
                 return_count=self.pixiv_config.return_count,
@@ -169,6 +170,7 @@ class IllustHandler:
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
                 display_tag_str=f"新{content_type}",
                 return_count=self.pixiv_config.return_count,
@@ -220,6 +222,7 @@ class IllustHandler:
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
                 display_tag_str="推荐",
                 return_count=self.pixiv_config.return_count,
@@ -405,6 +408,7 @@ class IllustHandler:
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
                 display_tag_str=display_tag_str,
                 return_count=self.pixiv_config.return_count,
@@ -473,6 +477,7 @@ class IllustHandler:
             # 统一使用 filter_illusts_with_reason 进行过滤和提示
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
                 display_tag_str=f"ID:{illust_id}",
                 return_count=self.pixiv_config.return_count,
@@ -577,6 +582,11 @@ class IllustHandler:
                 "当前 R18 模式设置为「过滤 R18」，无法使用 R18 相关排行榜。"
             )
             return
+        if "r18g" in mode and self.pixiv_config.filter_r18g_only:
+            yield event.plain_result(
+                "当前已开启「额外过滤 R18G」，无法使用 R18G 相关排行榜。"
+            )
+            return
 
         logger.info(
             f"Pixiv 插件：正在获取排行榜 - 模式: {mode}, 日期: {date if date else '最新'}"
@@ -619,6 +629,7 @@ class IllustHandler:
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
                 display_tag_str=f"排行榜:{mode}",
                 return_count=self.pixiv_config.return_count,
@@ -680,6 +691,7 @@ class IllustHandler:
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
                 display_tag_str=f"相关:{illust_id}",
                 return_count=self.pixiv_config.return_count,
@@ -828,6 +840,7 @@ class IllustHandler:
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
                 display_tag_str=display_tags,
                 return_count=self.pixiv_config.return_count,
@@ -1407,6 +1420,7 @@ class IllustHandler:
 
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
                 display_tag_str=display_tags,
                 return_count=self.pixiv_config.return_count,

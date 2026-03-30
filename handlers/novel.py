@@ -76,6 +76,7 @@ class NovelHandler:
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
                 display_tag_str=display_tags,
                 return_count=self.pixiv_config.return_count,
@@ -127,6 +128,7 @@ class NovelHandler:
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
                 display_tag_str="推荐小说",
                 return_count=self.pixiv_config.return_count,
@@ -198,6 +200,7 @@ class NovelHandler:
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,
+                filter_r18g_only=self.pixiv_config.filter_r18g_only,
                 ai_filter_mode=self.pixiv_config.ai_filter_mode,
                 display_tag_str="新小说",
                 return_count=self.pixiv_config.return_count,

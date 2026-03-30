@@ -59,6 +59,12 @@
           "仅 R18"
       ]
   },
+  "filter_r18g_only": {
+      "description": "额外过滤 R18G",
+      "type": "bool",
+      "hint": "开启后会额外过滤 R18G 内容。在 r18_mode=过滤 R18 时生效。",
+      "default": false
+  },
   "ai_filter_mode": {
       "description": "AI 生成作品过滤模式",
       "type": "string",

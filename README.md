@@ -107,6 +107,7 @@
    - **Fanbox Session (可选)**: `FANBOXSESSID`，用于受限 Fanbox 内容
    - **Fanbox 数据源模式**: `auto`（默认，官方优先失败回退 Nekohouse）/`official`（仅官方）/`nekohouse`（仅归档）
    - **R18 过滤模式**: 过滤R18/允许R18/仅R18
+   - **额外过滤R18G**: 在允许 R18 时也可单独拦截 R18G
    - **返回图片数量**: 1-10张，默认1张
    - **AI作品显示**: 是否显示AI生成作品
    - **质量过滤**: 可选发送原画|大图|缩略图
@@ -228,6 +229,7 @@
 | `fanbox_data_source` | Fanbox 数据源：`auto`/`official`/`nekohouse` | auto |
 | `return_count` | 每次搜索返回的图片数量 (1-10) | 1 |
 | `r18_mode` | R18内容处理模式 | 过滤 R18 |
+| `filter_r18g_only` | 是否额外过滤 R18G | false |
 | `ai_filter_mode` | AI作品显示设置 | 显示 AI 作品 |
 | `deep_search_depth` | 深度搜索时搜索页数深度 (-1无限制, 0-50) | 3 |
 | `show_details` | 是否在发送图片时附带详细信息 | true |
