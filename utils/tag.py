@@ -1,6 +1,6 @@
 """
 tag.py
-统一Pixiv标签格式化、详情信息构建与R18/AI过滤工具模块
+统一Pixiv标签格式化、详情信息构建与R18/AI/互动阈值过滤工具模块
 """
 
 from dataclasses import dataclass
@@ -10,6 +10,14 @@ import random
 # R18 与 AI 敏感词列表
 R18_BADWORDS = [s.lower() for s in ["R-18", "R18", "R-18G", "R18G", "R18+", "R18+G"]]
 AI_BADWORDS = [s.lower() for s in ["AI", "AI生成", "AI-generated", "AI辅助"]]
+
+_FILTER_CONFIG_SOURCE = None
+
+
+def set_filter_config_source(config) -> None:
+    """Bind the live plugin config so shared filters can read runtime thresholds."""
+    global _FILTER_CONFIG_SOURCE
+    _FILTER_CONFIG_SOURCE = config
 
 
 @dataclass
@@ -27,6 +35,10 @@ class FilterConfig:
     excluded_tags: Optional[List[str]] = None
     forward_threshold: bool = False
     show_details: bool = True
+    min_bookmarks: Optional[int] = None
+    min_views: Optional[int] = None
+    min_likes: Optional[int] = None
+    enable_stat_filters: bool = True
 
 
 def _get_value(source, *keys):
@@ -54,6 +66,27 @@ def _to_int(value):
         if stripped.lstrip("-").isdigit():
             return int(stripped)
     return None
+
+
+def _normalize_threshold(value) -> int:
+    """Normalize threshold values to non-negative integers."""
+    parsed = _to_int(value)
+    if parsed is None:
+        return 0
+    return max(0, parsed)
+
+
+def _resolve_threshold(config: FilterConfig, attr_name: str) -> int:
+    """Resolve a threshold from per-call config, falling back to the live plugin config."""
+    value = getattr(config, attr_name, None)
+    if value is None and _FILTER_CONFIG_SOURCE is not None:
+        value = getattr(_FILTER_CONFIG_SOURCE, attr_name, 0)
+    return _normalize_threshold(value)
+
+
+def _is_below_threshold(value, threshold: int) -> bool:
+    """Treat missing metrics as unknown instead of auto-failing the item."""
+    return threshold > 0 and value is not None and value < threshold
 
 
 def _extract_tag_name(tag) -> str:
@@ -134,6 +167,65 @@ def is_ugoira(item):
     return getattr(item, "type", None) == "ugoira"
 
 
+def _get_bookmark_count(item):
+    """读取作品书签数。"""
+    return _to_int(
+        _get_value(
+            item,
+            "total_bookmarks",
+            "totalBookmarks",
+            "bookmark_count",
+            "bookmarkCount",
+        )
+    )
+
+
+def _get_view_count(item):
+    """读取作品阅读量。"""
+    return _to_int(
+        _get_value(item, "total_view", "totalView", "view_count", "viewCount")
+    )
+
+
+def _get_like_count(item):
+    """读取作品点赞数。不同 Pixiv 返回结构可能使用不同字段名。"""
+    return _to_int(
+        _get_value(
+            item,
+            "total_like",
+            "totalLike",
+            "total_likes",
+            "totalLikes",
+            "like_count",
+            "likeCount",
+        )
+    )
+
+
+def _get_low_stat_reasons(illusts: List, config: FilterConfig) -> List[str]:
+    """生成命中的互动阈值原因列表。"""
+    reasons = []
+    min_bookmarks = _resolve_threshold(config, "min_bookmarks")
+    min_views = _resolve_threshold(config, "min_views")
+    min_likes = _resolve_threshold(config, "min_likes")
+
+    if min_bookmarks > 0 and any(
+        _is_below_threshold(_get_bookmark_count(item), min_bookmarks)
+        for item in illusts
+    ):
+        reasons.append(f"书签数低于 {min_bookmarks}")
+    if min_views > 0 and any(
+        _is_below_threshold(_get_view_count(item), min_views) for item in illusts
+    ):
+        reasons.append(f"阅读量低于 {min_views}")
+    if min_likes > 0 and any(
+        _is_below_threshold(_get_like_count(item), min_likes) for item in illusts
+    ):
+        reasons.append(f"点赞数低于 {min_likes}")
+
+    return reasons
+
+
 def _apply_filters(item, config: FilterConfig) -> bool:
     """应用所有过滤条件"""
     if config.r18_mode == "过滤 R18" and is_r18(item):
@@ -146,6 +238,19 @@ def _apply_filters(item, config: FilterConfig) -> bool:
         return False
     if config.excluded_tags and has_excluded_tags(item, config.excluded_tags):
         return False
+    if config.enable_stat_filters:
+        if _is_below_threshold(
+            _get_bookmark_count(item), _resolve_threshold(config, "min_bookmarks")
+        ):
+            return False
+        if _is_below_threshold(
+            _get_view_count(item), _resolve_threshold(config, "min_views")
+        ):
+            return False
+        if _is_below_threshold(
+            _get_like_count(item), _resolve_threshold(config, "min_likes")
+        ):
+            return False
     return True
 
 
@@ -167,6 +272,8 @@ def _generate_filter_messages(
             filter_reasons.append("AI")
         if config.excluded_tags:
             filter_reasons.append("排除标签")
+        if config.enable_stat_filters:
+            filter_reasons.extend(_get_low_stat_reasons(illusts, config))
 
         if filter_reasons:
             filter_msgs.append(
@@ -205,6 +312,8 @@ def _generate_no_result_messages(
         has_excluded_tags(i, config.excluded_tags) for i in illusts
     ):
         no_result_reason.append("包含排除标签")
+    if config.enable_stat_filters:
+        no_result_reason.extend(_get_low_stat_reasons(illusts, config))
 
     if no_result_reason and initial_count > 0:
         msgs.append(
@@ -235,7 +344,7 @@ def _generate_no_result_messages(
 
 
 def filter_illusts_with_reason(illusts, config: FilterConfig):
-    """统一R18/AI/排除标签过滤逻辑，返回过滤后的插画列表和详细过滤提示"""
+    """统一 R18/AI/排除标签/互动阈值过滤逻辑，返回过滤后的作品列表和提示。"""
     initial_count = len(illusts)
     filtered_list = [item for item in illusts if _apply_filters(item, config)]
     filtered_count = len(filtered_list)

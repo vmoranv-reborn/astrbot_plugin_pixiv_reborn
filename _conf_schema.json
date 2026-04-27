@@ -70,6 +70,30 @@
           "仅 AI 作品"
       ]
   },
+  "min_bookmarks": {
+      "description": "最小书签数过滤阈值",
+      "type": "int",
+      "hint": "过滤掉书签数小于该值的插画。设置为 0 表示关闭该过滤。",
+      "default": 0,
+      "min": 0,
+      "max": 100000000
+  },
+  "min_views": {
+      "description": "最小阅读量过滤阈值",
+      "type": "int",
+      "hint": "过滤掉阅读量小于该值的插画。设置为 0 表示关闭该过滤。",
+      "default": 0,
+      "min": 0,
+      "max": 100000000
+  },
+  "min_likes": {
+      "description": "最小点赞数过滤阈值",
+      "type": "int",
+      "hint": "过滤掉点赞数小于该值的插画。设置为 0 表示关闭该过滤；当 Pixiv 返回中缺少点赞字段时会自动忽略该项。",
+      "default": 0,
+      "min": 0,
+      "max": 100000000
+  },
   "deep_search_depth": {
       "description": "深度搜索时搜索页数深度",
       "type": "int", 
