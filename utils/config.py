@@ -89,6 +89,9 @@ class PixivConfig:
         self.return_count = self.config.get("return_count", 1)
         self.r18_mode = self.config.get("r18_mode", "过滤 R18")
         self.ai_filter_mode = self.config.get("ai_filter_mode", "过滤 AI 作品")
+        self.min_bookmarks = self.config.get("min_bookmarks", 0)
+        self.min_views = self.config.get("min_views", 0)
+        self.min_likes = self.config.get("min_likes", 0)
         self.show_filter_result = self.config.get("show_filter_result", True)
         self.show_details = self.config.get("show_details", True)
         self.deep_search_depth = self.config.get("deep_search_depth", 3)
@@ -160,7 +163,9 @@ class PixivConfig:
         return (
             f"refresh_token={'已设置' if self.refresh_token else '未设置'}, "
             f"return_count={self.return_count}, r18_mode='{self.r18_mode}', "
-            f"ai_filter_mode='{self.ai_filter_mode}', show_details={self.show_details}, "
+            f"ai_filter_mode='{self.ai_filter_mode}', "
+            f"min_bookmarks={self.min_bookmarks}, min_views={self.min_views}, min_likes={self.min_likes}, "
+            f"show_details={self.show_details}, "
             f"refresh_interval={self.refresh_interval} 分钟, "
             f"subscription_enabled={self.subscription_enabled}, "
             f"proxy='{effective_proxy or '未使用'}', "
@@ -194,6 +199,9 @@ class PixivConfigManager:
                 "type": "enum",
                 "choices": ["显示 AI 作品", "过滤 AI 作品", "仅 AI 作品"],
             },
+            "min_bookmarks": {"type": "int", "min": 0, "max": 100000000},
+            "min_views": {"type": "int", "min": 0, "max": 100000000},
+            "min_likes": {"type": "int", "min": 0, "max": 100000000},
             "return_count": {"type": "int", "min": 1, "max": 30},
             "show_filter_result": {"type": "bool"},
             "show_details": {"type": "bool"},
@@ -252,6 +260,9 @@ class PixivConfigManager:
             "return_count",
             "r18_mode",
             "ai_filter_mode",
+            "min_bookmarks",
+            "min_views",
+            "min_likes",
             "show_filter_result",
             "show_details",
             "deep_search_depth",

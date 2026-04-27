@@ -12,6 +12,7 @@ from .utils.subscription import SubscriptionService
 from .utils.pixiv_utils import init_pixiv_utils
 from .utils.help import init_help_manager, get_help_message
 from .utils.llm_tool import create_pixiv_llm_tools
+from .utils.tag import set_filter_config_source
 
 from .utils.config import PixivConfig, PixivConfigManager
 
@@ -74,6 +75,7 @@ class PixivSearchPlugin(Star):
 
         # 初始化 PixivUtils 模块
         init_pixiv_utils(self.client, self.pixiv_config, self.temp_dir)
+        set_filter_config_source(self.pixiv_config)
 
         # 初始化帮助消息管理器
         init_help_manager(data_dir)
@@ -125,7 +127,7 @@ class PixivSearchPlugin(Star):
             "name": "pixiv_search",
             "author": "vmoranv",
             "description": "Pixiv 图片搜索",
-            "version": "1.7.2",
+            "version": "1.7.3",
             "homepage": "https://github.com/vmoranv-reborn/astrbot_plugin_pixiv_search",
         }
 
