@@ -145,7 +145,7 @@ def is_ai(item):
     ai_type = _to_int(
         _get_value(item, "illust_ai_type", "illustAiType", "ai_type", "aiType")
     )
-    if ai_type is not None and ai_type > 0:
+    if ai_type == 2:
         return True
 
     for name in _extract_tag_names(_get_value(item, "tags") or []):
