@@ -88,7 +88,7 @@ class PixivConfig:
         self.refresh_token = self.config.get("refresh_token", None)
         self.return_count = self.config.get("return_count", 1)
         self.r18_mode = self.config.get("r18_mode", "过滤 R18")
-        self.ai_filter_mode = self.config.get("ai_filter_mode", "过滤 AI 作品")
+        self.ai_filter_mode = self.config.get("ai_filter_mode", "显示 AI 作品")
         self.min_bookmarks = self.config.get("min_bookmarks", 0)
         self.min_views = self.config.get("min_views", 0)
         self.min_likes = self.config.get("min_likes", 0)
