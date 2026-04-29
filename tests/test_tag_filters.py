@@ -10,19 +10,25 @@ def make_illust(
     total_bookmarks: int = 0,
     total_view: int = 0,
     like_count=None,
+    illust_ai_type: int | None = 0,
+    tags=None,
+    extra_fields=None,
 ):
     payload = {
         "id": illust_id,
         "title": f"illust-{illust_id}",
         "user": SimpleNamespace(name="tester"),
-        "tags": [],
+        "tags": tags or [],
         "x_restrict": 0,
-        "illust_ai_type": 0,
         "total_bookmarks": total_bookmarks,
         "total_view": total_view,
     }
+    if illust_ai_type is not None:
+        payload["illust_ai_type"] = illust_ai_type
     if like_count is not None:
         payload["likeCount"] = like_count
+    if extra_fields:
+        payload.update(extra_fields)
     return SimpleNamespace(**payload)
 
 
@@ -122,6 +128,65 @@ class TagFilterThresholdTests(unittest.TestCase):
         filtered, _ = filter_illusts_with_reason([make_novel(novel_id=1)], config)
 
         self.assertEqual([item.id for item in filtered], [1])
+
+    def test_ai_filter_keeps_illust_ai_type_one(self):
+        config = FilterConfig(
+            r18_mode="允许 R18",
+            ai_filter_mode="过滤 AI 作品",
+            show_filter_result=False,
+        )
+
+        filtered, _ = filter_illusts_with_reason(
+            [make_illust(illust_id=1, illust_ai_type=1)], config
+        )
+
+        self.assertEqual([item.id for item in filtered], [1])
+
+    def test_ai_filter_removes_illust_ai_type_two(self):
+        config = FilterConfig(
+            r18_mode="允许 R18",
+            ai_filter_mode="过滤 AI 作品",
+            show_filter_result=False,
+        )
+
+        filtered, _ = filter_illusts_with_reason(
+            [make_illust(illust_id=1, illust_ai_type=2)], config
+        )
+
+        self.assertEqual(filtered, [])
+
+    def test_ai_filter_reads_camel_case_ai_type(self):
+        config = FilterConfig(
+            r18_mode="允许 R18",
+            ai_filter_mode="过滤 AI 作品",
+            show_filter_result=False,
+        )
+
+        filtered, _ = filter_illusts_with_reason(
+            [
+                make_illust(
+                    illust_id=1,
+                    illust_ai_type=None,
+                    extra_fields={"illustAiType": 2},
+                )
+            ],
+            config,
+        )
+
+        self.assertEqual(filtered, [])
+
+    def test_ai_filter_falls_back_to_ai_tags(self):
+        config = FilterConfig(
+            r18_mode="允许 R18",
+            ai_filter_mode="过滤 AI 作品",
+            show_filter_result=False,
+        )
+
+        filtered, _ = filter_illusts_with_reason(
+            [make_illust(illust_id=1, tags=[{"name": "AI生成"}])], config
+        )
+
+        self.assertEqual(filtered, [])
 
 
 if __name__ == "__main__":
