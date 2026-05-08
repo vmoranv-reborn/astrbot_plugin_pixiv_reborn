@@ -91,6 +91,9 @@ class PixivConfig:
         self.filter_r18g_only = self.config.get("filter_r18g_only", False)
         self.ai_filter_mode = self.config.get("ai_filter_mode", "过滤 AI 作品")
         self.ai_detection_mode = self.config.get("ai_detection_mode", "field_or_tag")
+        self.min_bookmarks = self.config.get("min_bookmarks", 0)
+        self.min_views = self.config.get("min_views", 0)
+        self.min_likes = self.config.get("min_likes", 0)
         self.show_filter_result = self.config.get("show_filter_result", True)
         self.single_response_mode = self.config.get("single_response_mode", True)
         self.show_details = self.config.get("show_details", True)
@@ -169,7 +172,9 @@ class PixivConfig:
             f"filter_r18g_only={self.filter_r18g_only}, "
             f"single_response_mode={self.single_response_mode}, "
             f"ai_filter_mode='{self.ai_filter_mode}', "
-            f"ai_detection_mode='{self.ai_detection_mode}', show_details={self.show_details}, "
+            f"ai_detection_mode='{self.ai_detection_mode}', "
+            f"min_bookmarks={self.min_bookmarks}, min_views={self.min_views}, min_likes={self.min_likes}, "
+            f"show_details={self.show_details}, "
             f"refresh_interval={self.refresh_interval} 分钟, "
             f"subscription_enabled={self.subscription_enabled}, "
             f"subscription_force_forward={self.subscription_force_forward}, "
@@ -209,6 +214,9 @@ class PixivConfigManager:
                 "type": "enum",
                 "choices": ["field_or_tag", "field_only", "tag_only"],
             },
+            "min_bookmarks": {"type": "int", "min": 0, "max": 100000000},
+            "min_views": {"type": "int", "min": 0, "max": 100000000},
+            "min_likes": {"type": "int", "min": 0, "max": 100000000},
             "return_count": {"type": "int", "min": 1, "max": 30},
             "show_filter_result": {"type": "bool"},
             "single_response_mode": {"type": "bool"},
@@ -271,6 +279,9 @@ class PixivConfigManager:
             "filter_r18g_only",
             "ai_filter_mode",
             "ai_detection_mode",
+            "min_bookmarks",
+            "min_views",
+            "min_likes",
             "show_filter_result",
             "single_response_mode",
             "show_details",

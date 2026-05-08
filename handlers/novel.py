@@ -87,6 +87,7 @@ class NovelHandler:
                 excluded_tags=exclude_tags or [],
                 forward_threshold=self.pixiv_config.forward_threshold,
                 show_details=self.pixiv_config.show_details,
+                enable_stat_filters=False,
             )
 
             async for result in process_and_send_illusts(
@@ -141,6 +142,7 @@ class NovelHandler:
                 excluded_tags=[],
                 forward_threshold=self.pixiv_config.forward_threshold,
                 show_details=self.pixiv_config.show_details,
+                enable_stat_filters=False,
             )
 
             async for result in process_and_send_illusts(
@@ -215,6 +217,7 @@ class NovelHandler:
                 excluded_tags=[],
                 forward_threshold=self.pixiv_config.forward_threshold,
                 show_details=self.pixiv_config.show_details,
+                enable_stat_filters=False,
             )
 
             async for result in process_and_send_illusts(

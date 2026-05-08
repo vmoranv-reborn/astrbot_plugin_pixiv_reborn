@@ -67,6 +67,9 @@ def filter_items(items, tag_label, excluded_tags=None):
     统一过滤插画/小说的辅助方法，只需传入待过滤对象和标签描述。
     其他参数自动使用插件全局配置。
     """
+    if isinstance(tag_label, FilterConfig):
+        return filter_illusts_with_reason(items, tag_label)
+
     config = FilterConfig(
         r18_mode=_config.r18_mode,
         filter_r18g_only=_config.filter_r18g_only,
