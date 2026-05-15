@@ -86,6 +86,7 @@
           "field_only",
           "tag_only"
       ]
+  },
   "min_bookmarks": {
       "description": "最小书签数过滤阈值",
       "type": "int",
