@@ -40,7 +40,7 @@ class SubscriptionService:
             logger.info("订阅检查服务已停止。")
 
     async def check_subscriptions(self):
-        """检查所有订阅并推送更新"""
+        """检查所有订阅并推送更新，按 (sub_type, target_id) 聚合，避免同一画师重复拉取 API。"""
         if not await self.client_wrapper.authenticate():
             logger.error("订阅检查失败：Pixiv API 认证失败。")
             return
@@ -49,62 +49,88 @@ class SubscriptionService:
         if not subscriptions:
             return
 
+        # 按 (sub_type, target_id) 分组，每组只调用一次 API
+        groups: dict[tuple[str, str], list] = {}
         for sub in subscriptions:
+            key = (sub.sub_type, sub.target_id)
+            groups.setdefault(key, []).append(sub)
+
+        artists = list(groups.items())
+
+        for (sub_type, target_id), subs in artists:
             try:
-                if sub.sub_type == "artist":
-                    await self.check_artist_updates(sub)
+                if sub_type == "artist":
+                    await self.check_artist_updates_aggregated(
+                        int(target_id), subs
+                    )
             except Exception as e:
                 logger.error(
-                    f"检查订阅 {sub.sub_type}: {sub.target_id} 时发生错误: {e}"
+                    f"检查订阅 {sub_type}: {target_id} 时发生错误: {e}"
                 )
-            await asyncio.sleep(5)
+            # 画师之间保留短暂间隔，避免 API 频率限制
+            await asyncio.sleep(3)
 
-    async def check_artist_updates(self, sub):
-        """检查画师更新"""
+    async def check_artist_updates_aggregated(self, artist_id: int, subs: list):
+        """聚合检查画师更新：拉取一次 API，然后并发向所有订阅群推送。"""
         api: AppPixivAPI = self.client
-        json_result = await asyncio.to_thread(api.user_illusts, sub.target_id)
+        json_result = await asyncio.to_thread(api.user_illusts, artist_id)
 
         if not json_result or not json_result.illusts:
             return
 
+        # 找出本次拉取中所有新作品（取所有订阅中 last_notified_illust_id 的最大值作为阈值，避免遗漏）
+        # 但各群的 last_notified_illust_id 可能不同，需要为每个群独立过滤
+        # 先找出全局最新作品（ID 最大的），以此为上限
+        all_illusts = sorted(json_result.illusts, key=lambda i: i.id, reverse=True)
+        global_latest_id = all_illusts[0].id if all_illusts else 0
+
+        # 并发为各群推送
+        tasks = []
+        for sub in subs:
+            tasks.append(
+                self._send_artist_updates_to_sub(sub, all_illusts, global_latest_id)
+            )
+
+        if tasks:
+            await asyncio.gather(*tasks)
+
+    async def _send_artist_updates_to_sub(
+        self, sub, all_illusts: list, global_latest_id: int
+    ):
+        """向单个订阅推送画师的新作品。"""
+        # 按该群的 last_notified_illust_id 过滤新作品
         new_illusts = []
-        for illust in json_result.illusts:
+        for illust in all_illusts:
             if illust.id > sub.last_notified_illust_id:
                 new_illusts.append(illust)
             else:
                 break
 
-        if new_illusts:
-            new_illusts.reverse()
-            for illust in new_illusts:
-                filtered_illusts, _ = filter_items(
-                    [illust], f"画师订阅: {sub.target_name}"
-                )
-                if filtered_illusts:
-                    sent_ok = await self.send_update(sub, filtered_illusts[0])
-                    if sent_ok:
-                        update_last_notified_id(
-                            sub.chat_id, sub.sub_type, sub.target_id, illust.id
-                        )
-                    else:
-                        logger.warning(
-                            f"订阅发送失败，保留 last_notified_illust_id 不变，"
-                            f"下次将重试。artist={sub.target_id}, illust={illust.id}"
-                        )
-                        break
-                else:
-                    update_last_notified_id(
-                        sub.chat_id, sub.sub_type, sub.target_id, illust.id
-                    )
-                await asyncio.sleep(2)
+        if not new_illusts:
+            return
+
+        # 按 ID 升序排列，最新的在最后
+        new_illusts.reverse()
+
+        # 更新该群的 last_notified_illust_id 为当前全局最新
+        update_last_notified_id(
+            sub.chat_id, sub.sub_type, sub.target_id, global_latest_id
+        )
+
+        for illust in new_illusts:
+            filtered_illusts, _ = filter_items(
+                [illust], f"画师订阅: {sub.target_name}"
+            )
+            if filtered_illusts:
+                await self.send_update(sub, filtered_illusts[0])
+                # 同一群内多张作品之间短暂间隔
+                await asyncio.sleep(1.5)
 
     async def send_update(self, sub, illust):
-        """发送更新通知，返回图片是否发送成功。"""
-        image_sent = False
+        """发送更新通知"""
         try:
             # 导入 MessageChain 类
             from astrbot.core.message.message_event_result import MessageChain
-            from astrbot.api.message_components import Image, Node, Nodes, Plain
 
             # 创建模拟事件对象（用于捕获消息链）
             class MockEvent:
@@ -137,49 +163,15 @@ class SubscriptionService:
             ):
                 if message_content:
                     if hasattr(message_content, "chain"):
-                        if self.pixiv_config.subscription_force_forward:
-                            # 订阅消息统一以合并转发发送（即便只有一条），避免图片直接出现在群聊中
-                            node_content = list(message_content.chain or [])
-                            forward_chain = mock_event.chain_result(
-                                [Nodes(nodes=[Node(name="Pixiv订阅", content=node_content)])]
-                            )
-                            await self.context.send_message(session_id_str, forward_chain)
-                        else:
-                            await self.context.send_message(session_id_str, message_content)
-                        # 只有包含 Image 组件时才视为图片发送成功（文本节点不推进游标）
-                        if any(
-                            isinstance(component, Image)
-                            for component in (message_content.chain or [])
-                        ):
-                            image_sent = True
+                        await self.context.send_message(session_id_str, message_content)
                     else:
-                        plain_text = str(message_content)
-                        if self.pixiv_config.subscription_force_forward:
-                            # 如果不是 MessageChain，对文本也走单节点合并消息
-                            forward_chain = mock_event.chain_result(
-                                [
-                                    Nodes(
-                                        nodes=[
-                                            Node(
-                                                name="Pixiv订阅",
-                                                content=[Plain(plain_text)],
-                                            )
-                                        ]
-                                    )
-                                ]
-                            )
-                            await self.context.send_message(session_id_str, forward_chain)
-                        else:
-                            message_chain = MessageChain()
-                            message_chain.message(plain_text)
-                            await self.context.send_message(
-                                session_id_str, message_chain
-                            )
-            return image_sent
+                        # 如果不是 MessageChain 对象，创建一个
+                        message_chain = MessageChain()
+                        message_chain.message(str(message_content))
+                        await self.context.send_message(session_id_str, message_chain)
 
         except Exception as e:
             logger.error(f"发送订阅更新时出错: {e}")
             import traceback
 
             logger.error(traceback.format_exc())
-            return False
