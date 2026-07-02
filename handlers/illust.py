@@ -27,6 +27,30 @@ class IllustHandler:
         self.client = client_wrapper.client_api
         self.pixiv_config = pixiv_config
 
+    async def pixiv_msg_url(self, event: AstrMessageEvent, msg: str = ""):
+        """处理接受的消息，查看是否为 https://www.pixiv.net/artworks/xxxx 形式的 URL，并获取作品信息"""
+        # 检查是否启用了 Pixiv URL 搜索功能
+        if not self.pixiv_config.pixiv_urlsearch_enabled:
+            return
+        msg = event.message_str.strip() # 去除首尾空白字符
+        # 检查是否为 Pixiv 插画 URL
+        if msg.startswith("https://www.pixiv.net/artworks/"):
+            try:
+                # 获取作品ID，使用 rstrip("/") 避免末尾斜杠导致取到空字符串
+                illust_id = msg.rstrip("/").split("/")[-1]
+                # 简单验证 ID 是否为数字，防止类似 /artworks/abc 的无效输入
+                if not illust_id.isdigit():
+                    yield event.plain_result("无效的 Pixiv 插画 ID。")
+                    return
+                
+                # 调用已有的 pixiv_specific 方法获取作品信息并发送
+                async for result in self.pixiv_specific(event, illust_id):
+                    yield result
+            except Exception as e:
+                logger.error(f"获取插画信息失败: {e}")
+                yield event.plain_result("获取插画信息失败，请稍后再试。")
+        
+            
     async def pixiv_search_illust(self, event: AstrMessageEvent, tags: str = ""):
         """处理 /pixiv 命令，默认为标签搜索功能"""
         # 清理标签字符串，并检查是否为空或为 "help"
@@ -74,11 +98,9 @@ class IllustHandler:
                 search_target="partial_match_for_tags",
             )
             initial_illusts = search_result.illusts if search_result.illusts else []
-
             if not initial_illusts:
                 yield event.plain_result("未找到相关插画。")
                 return
-
             # 使用统一的作品处理和发送函数
             config = FilterConfig(
                 r18_mode=self.pixiv_config.r18_mode,

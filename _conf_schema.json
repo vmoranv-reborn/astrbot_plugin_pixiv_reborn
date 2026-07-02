@@ -131,6 +131,12 @@
       "hint": "设置为 true 时启用转发，false 时禁用转发。启用后所有图片都会以转发消息形式发送。",
       "default": false
   },
+  "pixiv_urlsearch_enabled": {
+      "description": "是否启用 Pixiv URL 搜索功能",
+      "type": "bool",
+      "hint": "设置为 true 时启用 Pixiv URL 搜索，false 时禁用。",
+      "default": true
+  },
   "show_filter_result": {
       "description": "是否显示过滤内容提示",
       "type": "bool",

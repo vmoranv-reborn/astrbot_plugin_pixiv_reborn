@@ -94,6 +94,7 @@ class PixivConfig:
         self.min_bookmarks = self.config.get("min_bookmarks", 0)
         self.min_views = self.config.get("min_views", 0)
         self.min_likes = self.config.get("min_likes", 0)
+        self.pixiv_urlsearch_enabled = self.config.get("pixiv_urlsearch_enabled", True)
         self.show_filter_result = self.config.get("show_filter_result", True)
         self.single_response_mode = self.config.get("single_response_mode", True)
         self.show_details = self.config.get("show_details", True)
