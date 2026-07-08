@@ -2,10 +2,10 @@ import asyncio
 from typing import Dict, Any
 import aiohttp
 
-from astrbot.api.event import AstrMessageEvent
+from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.api import logger
-from astrbot.api.all import command
+from astrbot.api.all import command 
 
 from .utils.database import initialize_database
 from .utils.subscription import SubscriptionService
@@ -164,6 +164,12 @@ class PixivSearchPlugin(Star):
         async for result in self.illust_handler.pixiv_and(event, tags):
             yield result
 
+    @filter.event_message_type(filter.EventMessageType.ALL)
+    async def pixiv_url_all(self, event: AstrMessageEvent):
+        """处理url消息事件,判断是否为p站插画链接,并发送图片"""
+        async for result in self.illust_handler.pixiv_msg_url(event, event.message_str):
+            yield result
+            
     @command("pixiv_specific")
     async def pixiv_specific(self, event: AstrMessageEvent, illust_id: str = ""):
         """根据作品 ID 获取特定作品详情"""

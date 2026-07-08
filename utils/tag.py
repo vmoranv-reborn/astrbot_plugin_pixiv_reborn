@@ -36,6 +36,7 @@ class FilterConfig:
     show_filter_result: bool = True
     excluded_tags: Optional[List[str]] = None
     filter_r18g_only: bool = False
+    pixiv_urlsearch_enabled: bool = True
     single_response_mode: bool = False
     forward_threshold: bool = False
     show_details: bool = True
