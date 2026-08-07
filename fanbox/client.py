@@ -1,0 +1,247 @@
+"""Fanbox 官方 API 封装：分页拉取、帖子详情、二进制下载。"""
+
+import asyncio
+from pathlib import Path
+from typing import Any, AsyncIterator, Callable
+
+import aiohttp
+from astrbot.api import logger
+
+from .models import (
+    FanboxPost,
+    parse_page_urls,
+    parse_post_info,
+    parse_post_list,
+)
+from .rate_limit import (
+    CloudflareBlockError,
+    RateLimiter,
+    classify_http_error,
+)
+
+API_BASE = "https://api.fanbox.cc"
+LIST_PAGE_LIMIT = 300  # 大分页减少请求次数
+MAX_429_RETRIES = 4
+MAX_CF_CONSECUTIVE = 3  # Cloudflare 连续拦截次数上限
+MAX_DOWNLOAD_RETRIES = 5
+
+
+class FanboxAPIClient:
+    """官方 API 客户端，认证头与代理由外部 callable 注入（复用 FanboxHandler）。"""
+
+    def __init__(
+        self,
+        cookie_getter: Callable[[], str | None],
+        ua_getter: Callable[[], str],
+        proxy_getter: Callable[[], str | None],
+        rate_limiter: RateLimiter | None = None,
+        cancel_event: asyncio.Event | None = None,
+    ):
+        self._cookie_getter = cookie_getter
+        self._ua_getter = ua_getter
+        self._proxy_getter = proxy_getter
+        self._rate_limiter = rate_limiter or RateLimiter()
+        self._cancel_event = cancel_event
+        self._cf_consecutive = 0
+
+    def set_cancel_event(self, event: asyncio.Event):
+        """由下载管理器注入取消信号。"""
+        self._cancel_event = event
+
+    def _check_cancelled(self):
+        if self._cancel_event is not None and self._cancel_event.is_set():
+            raise asyncio.CancelledError()
+
+    def _build_headers(self, referer: str) -> dict[str, str]:
+        headers = {
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8,zh-CN;q=0.7",
+            "Origin": "https://www.fanbox.cc",
+            "Referer": referer,
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-site",
+            "User-Agent": self._ua_getter(),
+        }
+        cookie = self._cookie_getter()
+        if cookie:
+            headers["Cookie"] = cookie
+        return headers
+
+    async def _get_json(self, url: str, referer: str) -> Any:
+        """带限流与 429/Cloudflare 重试的 JSON GET。"""
+        last_error: Exception | None = None
+        for attempt in range(MAX_429_RETRIES + 1):
+            self._check_cancelled()
+            await self._rate_limiter.acquire()
+            try:
+                timeout = aiohttp.ClientTimeout(total=30)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(
+                        url,
+                        headers=self._build_headers(referer),
+                        proxy=self._proxy_getter(),
+                    ) as resp:
+                        raw = await resp.text()
+                        if resp.status == 429:
+                            retry_after = None
+                            try:
+                                retry_after = float(resp.headers.get("Retry-After", ""))
+                            except (TypeError, ValueError):
+                                pass
+                            last_error = classify_http_error(429, raw)
+                            logger.warning(
+                                f"Pixiv 插件：Fanbox 429，第 {attempt + 1} 次退避 - {url}"
+                            )
+                            await self._rate_limiter.backoff_429(attempt, retry_after)
+                            continue
+                        if resp.status != 200:
+                            raise classify_http_error(resp.status, raw)
+                        try:
+                            payload = await resp.json(content_type=None)
+                        except Exception as exc:
+                            raise CloudflareBlockError(
+                                f"Fanbox 返回非 JSON 响应，疑似 Cloudflare 拦截: {raw[:200]}"
+                            ) from exc
+                        self._cf_consecutive = 0
+                        if isinstance(payload, dict) and payload.get("error"):
+                            error = payload["error"]
+                            msg = error.get("message") if isinstance(error, dict) else str(error)
+                            raise RuntimeError(f"Fanbox API 错误: {msg or error}")
+                        return payload
+            except CloudflareBlockError as exc:
+                self._cf_consecutive += 1
+                if self._cf_consecutive >= MAX_CF_CONSECUTIVE:
+                    raise
+                last_error = exc
+                logger.warning(
+                    f"Pixiv 插件：Fanbox 疑似 Cloudflare 拦截（连续 {self._cf_consecutive} 次），退避重试"
+                )
+                await self._rate_limiter.backoff_429(attempt)
+            except asyncio.CancelledError:
+                raise
+            except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+                # 网络层失败常见于 Cloudflare 拦截（Failed to fetch / 连接重置）
+                self._cf_consecutive += 1
+                if self._cf_consecutive >= MAX_CF_CONSECUTIVE:
+                    raise CloudflareBlockError(
+                        f"连续 {self._cf_consecutive} 次网络失败，疑似 Cloudflare 拦截: {exc}"
+                    ) from exc
+                last_error = exc
+                logger.warning(f"Pixiv 插件：Fanbox 请求网络错误，退避重试 - {exc}")
+                await self._rate_limiter.backoff_429(attempt)
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("Fanbox 请求失败：重试耗尽。")
+
+    async def iter_creator_posts(self, creator_id: str) -> AsyncIterator[FanboxPost]:
+        """遍历创作者全部帖子摘要：优先 limit=300 + nextPage，旧格式回退 paginateCreator。"""
+        referer = f"https://{creator_id}.fanbox.cc/"
+        url = f"{API_BASE}/post.listCreator?creatorId={creator_id}&limit={LIST_PAGE_LIMIT}"
+        seen: set[str] = set()
+
+        payload = await self._get_json(url, referer)
+        posts, next_page = parse_post_list(payload)
+        if next_page is None and not posts:
+            # 旧格式回退：paginateCreator 返回 pageUrls 逐页拉取（fanbox-dl 原始路径）
+            page_urls = parse_page_urls(
+                await self._get_json(
+                    f"{API_BASE}/post.paginateCreator?creatorId={creator_id}", referer
+                )
+            )
+            for page_url in page_urls:
+                self._check_cancelled()
+                page_payload = await self._get_json(page_url, referer)
+                page_posts, _ = parse_post_list(page_payload)
+                for post in page_posts:
+                    if post.id in seen:
+                        continue
+                    seen.add(post.id)
+                    yield post
+            return
+
+        while True:
+            for post in posts:
+                if post.id in seen:
+                    continue
+                seen.add(post.id)
+                yield post
+            if not next_page:
+                return
+            self._check_cancelled()
+            payload = await self._get_json(next_page, referer)
+            posts, next_page = parse_post_list(payload)
+
+    async def get_post_detail(self, post_id: str) -> FanboxPost | None:
+        """post.info：受限或空 body 返回 None。"""
+        payload = await self._get_json(
+            f"{API_BASE}/post.info?postId={post_id}", "https://www.fanbox.cc/"
+        )
+        post = parse_post_info(payload)
+        if post is None or post.is_restricted:
+            return None
+        return post
+
+    async def download_asset(
+        self,
+        url: str,
+        dest: Path,
+        fallback_url: str | None = None,
+        referer: str = "https://www.fanbox.cc/",
+    ) -> int:
+        """流式下载到 dest，返回字节数；网络错误重试，500 缩略图失败时降级 fallback_url。"""
+        headers = self._build_headers(referer)
+        headers["Accept"] = "*/*"
+        wait = 1.0
+        last_error: Exception | None = None
+        current_url = url
+
+        for _ in range(MAX_DOWNLOAD_RETRIES):
+            self._check_cancelled()
+            try:
+                timeout = aiohttp.ClientTimeout(total=300, connect=15)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(
+                        current_url, headers=headers, proxy=self._proxy_getter()
+                    ) as resp:
+                        if resp.status == 500 and (await resp.text()) == "failed to thumbnailing":
+                            # 原图不可用（过大等），降级缩略图，对齐 fanbox-dl
+                            if fallback_url:
+                                logger.info(
+                                    f"Pixiv 插件：Fanbox 原图不可用，降级缩略图 - {current_url}"
+                                )
+                                current_url = fallback_url
+                                continue
+                            raise RuntimeError("原图不可用（failed to thumbnailing）且无缩略图可降级。")
+                        if resp.status != 200:
+                            raise classify_http_error(resp.status, await resp.text())
+                        total = 0
+                        with open(dest, "wb") as fp:
+                            async for chunk in resp.content.iter_chunked(64 * 1024):
+                                self._check_cancelled()
+                                fp.write(chunk)
+                                total += len(chunk)
+                        return total
+            except asyncio.CancelledError:
+                self._remove_partial(dest)
+                raise
+            except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as exc:
+                last_error = exc
+                self._remove_partial(dest)
+                logger.warning(
+                    f"Pixiv 插件：Fanbox 下载错误，{wait:.0f}s 后重试 - {current_url} - {exc}"
+                )
+                await asyncio.sleep(wait)
+                wait = min(wait * 2, 30.0)
+
+        self._remove_partial(dest)
+        raise RuntimeError(f"下载失败（重试 {MAX_DOWNLOAD_RETRIES} 次）: {last_error}")
+
+    @staticmethod
+    def _remove_partial(dest: Path):
+        """删除中断产生的残文件。"""
+        try:
+            if dest.exists():
+                dest.unlink()
+        except OSError:
+            pass

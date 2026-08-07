@@ -61,7 +61,7 @@ class PixivSearchPlugin(Star):
             self.client_wrapper, self.pixiv_config, context
         )
         self.misc_handler = MiscHandler(self.client_wrapper, self.pixiv_config)
-        self.fanbox_handler = FanboxHandler(self.pixiv_config)
+        self.fanbox_handler = FanboxHandler(self.pixiv_config, context=context)
 
         self._refresh_task: asyncio.Task = None
         self._http_session = None
@@ -72,6 +72,7 @@ class PixivSearchPlugin(Star):
         data_dir = StarTools.get_data_dir("pixiv_search")
         self.temp_dir = data_dir / "temp"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
+        self.fanbox_handler.temp_dir = self.temp_dir
 
         # 初始化 PixivUtils 模块
         init_pixiv_utils(self.client, self.pixiv_config, self.temp_dir)
@@ -456,6 +457,30 @@ class PixivSearchPlugin(Star):
         """按 Nekohouse artists 搜索 Fanbox 创作者"""
         args = " ".join([x for x in [keyword, limit] if x])
         async for result in self.fanbox_handler.pixiv_fanbox_artist(event, args):
+            yield result
+
+    @command("pixiv_fanbox_dl")
+    async def pixiv_fanbox_dl(self, event: AstrMessageEvent, args: str = ""):
+        """批量下载创作者 Fanbox 帖子"""
+        async for result in self.fanbox_handler.pixiv_fanbox_dl(event, args):
+            yield result
+
+    @command("pixiv_fanbox_dl_status")
+    async def pixiv_fanbox_dl_status(self, event: AstrMessageEvent):
+        """查看 Fanbox 下载任务进度"""
+        async for result in self.fanbox_handler.pixiv_fanbox_dl_status(event):
+            yield result
+
+    @command("pixiv_fanbox_dl_stop")
+    async def pixiv_fanbox_dl_stop(self, event: AstrMessageEvent):
+        """停止 Fanbox 下载任务"""
+        async for result in self.fanbox_handler.pixiv_fanbox_dl_stop(event):
+            yield result
+
+    @command("pixiv_fanbox_dl_view")
+    async def pixiv_fanbox_dl_view(self, event: AstrMessageEvent, args: str = ""):
+        """查看/发送/打包已下载的 Fanbox 内容"""
+        async for result in self.fanbox_handler.pixiv_fanbox_dl_view(event, args):
             yield result
 
     async def terminate(self):

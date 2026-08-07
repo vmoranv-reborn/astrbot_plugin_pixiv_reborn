@@ -1,6 +1,8 @@
 import re
 import os
+import shlex
 import html as html_lib
+from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
 
@@ -14,6 +16,14 @@ from ..utils.pixiv_utils import (
     download_image,
     _build_image_from_bytes,
     _build_image_from_url,
+)
+
+from ..fanbox.client import FanboxAPIClient
+from ..fanbox.downloader import (
+    FanboxDownloadManager,
+    MAX_PACK_SIZE_BYTES,
+    sanitize_filename,
+    validate_dir_name,
 )
 
 
@@ -47,9 +57,23 @@ class FanboxHandler:
         re.IGNORECASE,
     )
 
-    def __init__(self, pixiv_config):
+    def __init__(self, pixiv_config, context=None, data_dir: Path | None = None, temp_dir: Path | None = None):
         self.pixiv_config = pixiv_config
+        self.context = context
+        self.temp_dir = temp_dir
         self._nekohouse_creators_cache: list[dict[str, Any]] | None = None
+        # 批量下载管理器（数据目录缺省时用到再惰性创建）
+        self._dl_manager = FanboxDownloadManager(data_dir) if data_dir else None
+
+    @property
+    def dl_manager(self) -> FanboxDownloadManager:
+        if self._dl_manager is None:
+            from astrbot.api.star import StarTools
+
+            self._dl_manager = FanboxDownloadManager(
+                StarTools.get_data_dir("pixiv_search")
+            )
+        return self._dl_manager
 
     def _missing_sessid_help(self) -> str:
         return get_help_message(
@@ -1506,3 +1530,276 @@ class FanboxHandler:
                 return
 
             yield event.plain_result(f"获取 Fanbox 帖子失败: {e}\n{hint}")
+
+    # -------- Fanbox 批量下载 --------
+
+    IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+
+    def _create_dl_client(self) -> FanboxAPIClient:
+        """创建批量下载客户端，复用本类的 Cookie/UA/代理。"""
+        return FanboxAPIClient(
+            cookie_getter=self._fanbox_cookie_header,
+            ua_getter=self._fanbox_user_agent,
+            proxy_getter=self._get_proxy,
+        )
+
+    def _make_dl_done_callback(self, event: AstrMessageEvent):
+        """任务结束推送：复用订阅模块的 context.send_message 模式。"""
+        session_id = event.unified_msg_origin
+
+        async def on_done(summary: str):
+            if self.context is None:
+                return
+            from astrbot.core.message.message_event_result import MessageChain
+
+            chain = MessageChain()
+            chain.message(summary)
+            await self.context.send_message(session_id, chain)
+
+        return on_done
+
+    def _parse_dl_options(self, tokens: list[str]):
+        """解析下载选项，返回 (creator_input, options_dict)；出错抛 ValueError。"""
+        creator_input = None
+        options: dict[str, Any] = {"limit": None, "since": None, "dl_type": "all", "dir_name": None}
+        i = 0
+        while i < len(tokens):
+            tok = tokens[i]
+            if tok == "--limit" and i + 1 < len(tokens):
+                if not tokens[i + 1].isdigit():
+                    raise ValueError("--limit 需要正整数")
+                options["limit"] = max(1, int(tokens[i + 1]))
+                i += 2
+            elif tok == "--since" and i + 1 < len(tokens):
+                import datetime
+
+                try:
+                    datetime.datetime.strptime(tokens[i + 1], "%Y-%m-%d")
+                except ValueError:
+                    raise ValueError("--since 需要 YYYY-MM-DD 格式日期")
+                options["since"] = tokens[i + 1]
+                i += 2
+            elif tok == "--type" and i + 1 < len(tokens):
+                if tokens[i + 1] not in {"image", "file", "all"}:
+                    raise ValueError("--type 仅支持 image|file|all")
+                options["dl_type"] = tokens[i + 1]
+                i += 2
+            elif tok == "--dir" and i + 1 < len(tokens):
+                options["dir_name"] = validate_dir_name(tokens[i + 1])
+                i += 2
+            elif tok.startswith("--"):
+                raise ValueError(f"未知选项: {tok}")
+            elif creator_input is None:
+                creator_input = tok
+                i += 1
+            else:
+                raise ValueError(f"多余参数: {tok}")
+        return creator_input, options
+
+    async def pixiv_fanbox_dl(self, event: AstrMessageEvent, args: str = ""):
+        """批量下载创作者 Fanbox 帖子（后台任务）。"""
+        text = args.strip()
+        if not text or text.lower() == "help":
+            yield event.plain_result(
+                get_help_message(
+                    "pixiv_fanbox_dl",
+                    "用法: /pixiv_fanbox_dl <creatorId|链接> [--limit N] [--since YYYY-MM-DD] [--type image|file|all] [--dir 名称]",
+                )
+            )
+            return
+
+        try:
+            tokens = shlex.split(text)
+            creator_input, options = self._parse_dl_options(tokens)
+        except ValueError as e:
+            yield event.plain_result(f"参数错误: {e}")
+            return
+        if not creator_input:
+            yield event.plain_result("缺少 creatorId 参数。发送 /pixiv_fanbox_dl help 查看用法。")
+            return
+
+        try:
+            creator_id = await self._resolve_creator_id(creator_input)
+        except Exception as e:
+            yield event.plain_result(f"creatorId 解析失败: {e}")
+            return
+
+        dir_name = options["dir_name"] or creator_id
+        try:
+            dir_name = validate_dir_name(dir_name)
+        except ValueError as e:
+            yield event.plain_result(f"{e}，可用 --dir 指定合法目录名。")
+            return
+
+        conflict = self.dl_manager.start(
+            self._create_dl_client(),
+            creator_id,
+            dir_name,
+            limit=options["limit"],
+            since=options["since"],
+            dl_type=options["dl_type"],
+            on_done=self._make_dl_done_callback(event),
+        )
+        if conflict:
+            yield event.plain_result(conflict)
+            return
+
+        opt_parts = [
+            f"limit={options['limit'] or '不限'}",
+            f"since={options['since'] or '不限'}",
+            f"type={options['dl_type']}",
+        ]
+        yield event.plain_result(
+            f"Fanbox 批量下载任务已启动：{creator_id}\n"
+            f"保存目录: fanbox/{dir_name}/ | {' | '.join(opt_parts)}\n"
+            "已下载过的帖子会自动跳过。\n"
+            "/pixiv_fanbox_dl_status 查看进度 | /pixiv_fanbox_dl_stop 停止"
+        )
+
+    async def pixiv_fanbox_dl_status(self, event: AstrMessageEvent, args: str = ""):
+        """查看当前 Fanbox 下载任务进度。"""
+        yield event.plain_result(self.dl_manager.status_text())
+
+    async def pixiv_fanbox_dl_stop(self, event: AstrMessageEvent, args: str = ""):
+        """停止当前 Fanbox 下载任务。"""
+        yield event.plain_result(self.dl_manager.stop())
+
+    def _resolve_dl_dir_name(self, raw: str) -> str:
+        """view 命令的目录参数：支持 fanbox 域名链接或直接目录名。"""
+        domain_match = self.FANBOX_DOMAIN_RE.search(raw.strip())
+        if domain_match:
+            return domain_match.group(1)
+        return validate_dir_name(raw)
+
+    async def pixiv_fanbox_dl_view(self, event: AstrMessageEvent, args: str = ""):
+        """查看已下载内容：列表 / 发送单帖 / 打包发送。"""
+        text = args.strip()
+        if not text or text.lower() == "help":
+            yield event.plain_result(
+                get_help_message(
+                    "pixiv_fanbox_dl_view",
+                    "用法: /pixiv_fanbox_dl_view <creatorId|目录名> [postId|--pack]",
+                )
+            )
+            return
+
+        try:
+            tokens = shlex.split(text)
+        except ValueError as e:
+            yield event.plain_result(f"参数解析失败: {e}")
+            return
+        try:
+            dir_name = self._resolve_dl_dir_name(tokens[0])
+        except ValueError as e:
+            yield event.plain_result(str(e))
+            return
+        second = tokens[1] if len(tokens) > 1 else None
+
+        if second == "--pack":
+            async for result in self._dl_view_pack(event, dir_name):
+                yield result
+        elif second is None:
+            yield event.plain_result(self._dl_view_list(dir_name))
+        elif second.isdigit():
+            async for result in self._dl_view_post(event, dir_name, second):
+                yield result
+        else:
+            yield event.plain_result(f"无法识别的参数: {second}（应为 postId 或 --pack）")
+
+    def _dl_view_list(self, dir_name: str) -> str:
+        posts = self.dl_manager.list_downloaded_posts(dir_name)
+        lines = [f"# Fanbox 已下载内容：{dir_name}", ""]
+        if not posts:
+            lines.append("暂无已下载的帖子。")
+            return "\n".join(lines)
+        total_size = sum(p["size"] for p in posts)
+        lines.append(f"共 {len(posts)} 篇 | 总大小 {total_size / 1024 / 1024:.1f} MB")
+        lines.append("")
+        for idx, post in enumerate(posts[:50], start=1):
+            size_mb = post["size"] / 1024 / 1024
+            lines.append(
+                f"{idx}. {post['title'] or '无标题'} (ID: {post['post_id']})"
+                f" | {post['files']} 个文件 | {size_mb:.1f} MB"
+            )
+        if len(posts) > 50:
+            lines.append(f"... 其余 {len(posts) - 50} 篇省略")
+        lines.append("")
+        lines.append(f"发送单帖: /pixiv_fanbox_dl_view {dir_name} <postId>")
+        lines.append(f"打包发送: /pixiv_fanbox_dl_view {dir_name} --pack")
+        return "\n".join(lines)
+
+    async def _dl_view_post(self, event: AstrMessageEvent, dir_name: str, post_id: str):
+        post_dir = self.dl_manager.find_post_dir(dir_name, post_id)
+        if post_dir is None:
+            yield event.plain_result(
+                f"未找到帖子 {post_id} 的下载目录，先用 /pixiv_fanbox_dl_view {dir_name} 查看列表。"
+            )
+            return
+
+        content_path = post_dir / "content.md"
+        text = ""
+        if content_path.exists():
+            try:
+                text = content_path.read_text(encoding="utf-8")
+            except OSError:
+                text = ""
+        if len(text) > 3000:
+            text = text[:3000] + "\n...（正文过长已截断，完整内容见 content.md）"
+
+        files = sorted(f for f in post_dir.iterdir() if f.is_file())
+        images = [f for f in files if f.suffix.lower() in self.IMAGE_SUFFIXES]
+        attachments = [
+            f for f in files
+            if f.suffix.lower() not in self.IMAGE_SUFFIXES and f.name != "content.md"
+        ]
+
+        image_components = []
+        for img_path in images[:10]:
+            try:
+                image_components.append(Comp.Image.fromFileSystem(str(img_path)))
+            except Exception as e:
+                logger.warning(f"Pixiv 插件：Fanbox 本地图片构建失败 - {img_path} - {e}")
+
+        tail_parts = []
+        if len(images) > 10:
+            tail_parts.append(f"图片仅发送前 10 张（共 {len(images)} 张）")
+        if attachments:
+            names = "、".join(f.name for f in attachments[:5])
+            more = f" 等 {len(attachments)} 个" if len(attachments) > 5 else ""
+            tail_parts.append(f"附件不在消息中发送: {names}{more}，位于 {post_dir}")
+        if tail_parts:
+            text += "\n\n" + "\n".join(tail_parts)
+
+        if image_components:
+            yield event.chain_result([*image_components, Comp.Plain(text or "（无正文）")])
+        else:
+            yield event.plain_result(text or "该帖子没有可发送的内容。")
+
+    async def _dl_view_pack(self, event: AstrMessageEvent, dir_name: str):
+        temp_dir = self.temp_dir
+        if temp_dir is None:
+            from astrbot.api.star import StarTools
+
+            temp_dir = StarTools.get_data_dir("pixiv_search") / "temp"
+        try:
+            zip_path = self.dl_manager.pack_creator(dir_name, Path(temp_dir))
+        except FileNotFoundError as e:
+            yield event.plain_result(str(e))
+            return
+        except Exception as e:
+            logger.error(f"Pixiv 插件：Fanbox 打包失败 - {e}")
+            yield event.plain_result(f"打包失败: {e}")
+            return
+
+        size_mb = zip_path.stat().st_size / 1024 / 1024
+        if zip_path.stat().st_size > MAX_PACK_SIZE_BYTES:
+            yield event.plain_result(
+                f"压缩包 {size_mb:.1f} MB，超过平台发送上限（100MB），未发送。\n文件路径: {zip_path}"
+            )
+            return
+        yield event.chain_result(
+            [
+                Comp.File(name=zip_path.name, file=str(zip_path)),
+                Comp.Plain(f"Fanbox 打包：{dir_name}（{size_mb:.1f} MB）"),
+            ]
+        )
