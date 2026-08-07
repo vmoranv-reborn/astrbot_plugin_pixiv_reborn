@@ -211,6 +211,7 @@ class FanboxDownloadManager:
                 f"Pixiv 插件：Fanbox 下载任务开始 - creator={creator_id} 待下载 {p.planned} 篇"
             )
 
+            consecutive_auth_errors = 0  # 连续 403 计数，区分单帖无权限与 Cookie 整体失效
             for summary in targets:
                 if self._cancel_event and self._cancel_event.is_set():
                     break
@@ -253,15 +254,21 @@ class FanboxDownloadManager:
                 except asyncio.CancelledError:
                     break
                 except Exception as exc:
+                    # 单帖 403 多为未订阅方案或缺 cf_clearance，按受限跳过；连续 5 次才判定整体失效
+                    if isinstance(exc, CookieInvalidError):
+                        p.skipped_restricted += 1
+                        consecutive_auth_errors += 1
+                        p.errors.append(f"{summary.id}: 无访问权限（未订阅方案或缺少 cf_clearance）")
+                        if consecutive_auth_errors >= 5:
+                            p.message = str(exc)
+                            break
+                        continue
+                    consecutive_auth_errors = 0
                     p.failed += 1
                     p.errors.append(f"{summary.id}: {exc}")
                     logger.warning(
                         f"Pixiv 插件：Fanbox 帖子下载失败 - {summary.id} - {exc}"
                     )
-                    # Cookie 失效等认证错误无重试意义，直接中止
-                    if isinstance(exc, CookieInvalidError):
-                        p.message = str(exc)
-                        break
 
             stopped = self._cancel_event is not None and self._cancel_event.is_set()
             p.state = "stopped" if stopped else "done"

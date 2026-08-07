@@ -46,9 +46,17 @@ class RateLimiter:
 def classify_http_error(status: int, raw_body: str) -> Exception:
     """按状态码与响应体分类错误。"""
     if status in (401, 403):
+        snippet = (raw_body or "").lstrip()[:20].lower()
+        # 403 + HTML 错误页：Cookie 有效但缺 cf_clearance 被 WAF 拦（实测于数据中心 IP）
+        if status == 403 and (snippet.startswith("<html") or snippet.startswith("<!doctype")):
+            return CookieInvalidError(
+                "HTTP 403：请求被 FANBOX 拦截（Cookie 有效但仍需浏览器验证），"
+                "请在 fanbox_cookie 中配置完整 Cookie（含 cf_clearance），"
+                "并将 fanbox_user_agent 设为与浏览器一致。"
+            )
         return CookieInvalidError(
-            f"HTTP {status}：Cookie 失效或权限不足，请更新 fanbox_sessid（FANBOXSESSID）"
-            "与 fanbox_cookie（含 cf_clearance）后重试。"
+            f"HTTP {status}：Cookie 失效或权限不足（可能未订阅该创作者方案），"
+            "请更新 fanbox_sessid（FANBOXSESSID）与 fanbox_cookie 后重试。"
         )
     if status == 429:
         return RateLimitError("HTTP 429：请求过于频繁。")
