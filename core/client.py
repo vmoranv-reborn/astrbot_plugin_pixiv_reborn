@@ -140,7 +140,10 @@ class PixivClientWrapper:
 
                 logger.info("Pixiv Token 刷新任务：尝试使用 Refresh Token 进行认证...")
                 try:
-                    self.client_api.auth(refresh_token=current_refresh_token)
+                    # 使用 to_thread 将同步网络调用移出事件循环，避免 ssl.read() 阻塞卡死整个 Bot
+                    await asyncio.to_thread(
+                        self.client_api.auth, refresh_token=current_refresh_token
+                    )
                     logger.info("Pixiv Token 刷新任务：认证调用成功。")
 
                 except PixivError as pe:
