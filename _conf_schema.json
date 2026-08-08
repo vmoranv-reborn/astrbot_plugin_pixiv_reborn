@@ -15,10 +15,10 @@
       "is_sensitive": true,
       "required": false
   },
-  "fanbox_cookie": {
-      "description": "Pixiv Fanbox 完整 Cookie（可选）",
+  "fanbox_cf_clearance": {
+      "description": "Fanbox cf_clearance（可选）",
       "type": "string",
-      "hint": "可填写浏览器请求头完整 Cookie（建议包含 cf_clearance、FANBOXSESSID）。用于官方 API 被 Cloudflare 拦截时复用浏览器会话。",
+      "hint": "仅当官方 API 被 Cloudflare 拦截（403）时填写。浏览器 F12 -> Application -> Cookies -> fanbox.cc 中复制 cf_clearance 的值。",
       "default": "",
       "is_sensitive": true,
       "required": false
@@ -26,7 +26,7 @@
   "fanbox_user_agent": {
       "description": "Fanbox 请求 User-Agent（可选）",
       "type": "string",
-      "hint": "建议填写与你浏览器一致的 UA；与 fanbox_cookie 搭配可提升官方 API 通过率。",
+      "hint": "建议填写与你浏览器一致的 UA；与 fanbox_cf_clearance 搭配可提升官方 API 通过率。",
       "default": ""
   },
   "fanbox_data_source": {
@@ -45,6 +45,13 @@
       "title": "Fanbox API 反代服务器",
       "description": "Fanbox 批量下载走自建 Cloudflare Workers 反代。格式：域名（如 example.com），无需 https://。留空直连 api.fanbox.cc。",
       "hint": "带 Cookie 请求 post.info 被 Cloudflare 拦（403 HTML，多为机房 IP）时使用。与 pixiv-proxy 同模式自建 Worker，upstream 改为 api.fanbox.cc 即可。",
+      "default": ""
+  },
+  "fanbox_dl_impersonate": {
+      "type": "string",
+      "title": "Fanbox 下载 TLS 指纹伪装",
+      "description": "批量下载使用 curl_cffi 模拟指定浏览器指纹（如 edge101、chrome131）。留空走默认 aiohttp。",
+      "hint": "post.info 403 拦截页时的首选方案：填你浏览器同族指纹（Edge 用 edge101，Chrome 用 chrome131），必要时配上 fanbox_cf_clearance 与 fanbox_user_agent。需 pip install curl_cffi。",
       "default": ""
   },
   "return_count": {

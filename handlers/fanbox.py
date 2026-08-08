@@ -109,19 +109,17 @@ class FanboxHandler:
         return ua or self.DEFAULT_BROWSER_UA
 
     def _fanbox_cookie_header(self) -> str | None:
-        raw_cookie = str(getattr(self.pixiv_config, "fanbox_cookie", "") or "").strip()
         sessid = str(getattr(self.pixiv_config, "fanbox_sessid", "") or "").strip()
+        cf_clearance = str(
+            getattr(self.pixiv_config, "fanbox_cf_clearance", "") or ""
+        ).strip()
 
-        if raw_cookie:
-            cookie = raw_cookie.rstrip(";").strip()
-            if sessid and "FANBOXSESSID=" not in cookie:
-                cookie = f"{cookie}; FANBOXSESSID={sessid}"
-            return cookie
-
+        pairs = []
         if sessid:
-            return f"FANBOXSESSID={sessid}"
-
-        return None
+            pairs.append(f"FANBOXSESSID={sessid}")
+        if cf_clearance:
+            pairs.append(f"cf_clearance={cf_clearance}")
+        return "; ".join(pairs) if pairs else None
 
     async def _fetch_text_url(
         self,
@@ -1487,7 +1485,7 @@ class FanboxHandler:
             if mode == "official":
                 hint = (
                     "可能原因: Cloudflare 校验、帖子权限不足或 Fanbox 会话缺失。"
-                    " 建议配置 fanbox_cookie(含 cf_clearance + FANBOXSESSID) 与 fanbox_user_agent。"
+                    " 建议配置 fanbox_sessid；若仍 403，再配置 fanbox_cf_clearance 与 fanbox_user_agent。"
                     " 可先用 /pixiv_fanbox_creator <creatorId> 查看可见帖子。"
                 )
                 if not self.pixiv_config.fanbox_sessid:
@@ -1518,7 +1516,7 @@ class FanboxHandler:
 
             hint = (
                 "可能原因: Cloudflare 校验、帖子权限不足或 Fanbox 会话缺失。"
-                " 建议配置 fanbox_cookie(含 cf_clearance + FANBOXSESSID) 与 fanbox_user_agent。"
+                " 建议配置 fanbox_sessid；若仍 403，再配置 fanbox_cf_clearance 与 fanbox_user_agent。"
                 " 可先用 /pixiv_fanbox_creator <creatorId> 查看可见帖子。"
             )
             if fallback_error is not None:
@@ -1542,6 +1540,7 @@ class FanboxHandler:
             ua_getter=self._fanbox_user_agent,
             proxy_getter=self._get_proxy,
             api_host=getattr(self.pixiv_config, "fanbox_api_proxy_host", ""),
+            impersonate=getattr(self.pixiv_config, "fanbox_dl_impersonate", ""),
         )
 
     def _make_dl_done_callback(self, event: AstrMessageEvent):

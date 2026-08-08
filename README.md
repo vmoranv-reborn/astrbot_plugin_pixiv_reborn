@@ -228,10 +228,11 @@
 |--------|------|--------|
 | `refresh_token` | Pixiv API 认证令牌 | 必填 |
 | `fanbox_sessid` | Fanbox 会话 Cookie（FANBOXSESSID，可选） | 留空 |
-| `fanbox_cookie` | Fanbox 完整 Cookie（建议含 `cf_clearance` + `FANBOXSESSID`） | 留空 |
+| `fanbox_cf_clearance` | Fanbox cf_clearance（仅官方 API 被 Cloudflare 拦截时填） | 留空 |
 | `fanbox_user_agent` | Fanbox 请求 UA（建议与浏览器一致） | 留空 |
 | `fanbox_data_source` | Fanbox 数据源：`auto`/`official`/`nekohouse` | auto |
 | `fanbox_api_proxy_host` | Fanbox 批量下载 API 反代域名（被 Cloudflare 拦时用） | 留空 |
+| `fanbox_dl_impersonate` | 批量下载 TLS 指纹伪装（如 `edge101`/`chrome131`，被拦时首选） | 留空 |
 | `return_count` | 每次搜索返回的图片数量 (1-10) | 1 |
 | `r18_mode` | R18内容处理模式 | 过滤 R18 |
 | `filter_r18g_only` | 是否额外过滤 R18G | false |
@@ -270,9 +271,9 @@
 
 **无代理直连失败**: 若在中国大陆无法使用代理且 ByPassSniApi 模式失效，可自建 Cloudflare Workers 反向代理。详见 [vmoranv/pixiv-proxy](https://github.com/vmoranv/pixiv-proxy) 仓库，部署后在插件配置中设置 `api_proxy_host` 为你的 Worker 域名。
 
-**Fanbox 帖子获取失败**: 可能触发 Cloudflare 或帖子受限。可先用 `/pixiv_fanbox_creator` 查看公开帖子，必要时配置 `fanbox_sessid`；若官方仍 403，建议同时配置 `fanbox_cookie`（完整 Cookie，含 `cf_clearance`）和 `fanbox_user_agent`（与浏览器一致）；也可切换 `fanbox_data_source=nekohouse` 仅走归档数据。
+**Fanbox 帖子获取失败**: 可能触发 Cloudflare 或帖子受限。可先用 `/pixiv_fanbox_creator` 查看公开帖子，必要时配置 `fanbox_sessid`；若官方仍 403，再配置 `fanbox_cf_clearance` 和 `fanbox_user_agent`（与浏览器一致）；也可切换 `fanbox_data_source=nekohouse` 仅走归档数据。
 
-**Fanbox 批量下载 403（HTML 拦截页）**: 实测机房 IP 带 Cookie 请求 `post.info` 会被 Cloudflare 拦（列表接口不受影响）。住宅 IP 一般直接可用；服务器环境可配置 `fanbox_cookie`（含 `cf_clearance`）+ 一致 UA，或自建 CF Workers 反代（与 pixiv-proxy 同模式，upstream 改为 `api.fanbox.cc`）后在 `fanbox_api_proxy_host` 填 Worker 域名，批量下载会走 CF 边缘出口绕过 IP 信誉拦截。
+**Fanbox 批量下载 403（HTML 拦截页）**: 带 Cookie 请求 `post.info` 被 Cloudflare 拦（列表接口不受影响）。实测有效解法：`fanbox_dl_impersonate` 填**与你浏览器同族**的指纹（Edge 填 `edge101`，Chrome 填 `chrome131`）+ `fanbox_user_agent`（与浏览器一致），必要时再配 `fanbox_cf_clearance`——cf_clearance 绑定签发时的浏览器指纹族，指纹不匹配同样会被拦。备选：自建 CF Workers 反代（与 pixiv-proxy 同模式，upstream 改为 `api.fanbox.cc`）后在 `fanbox_api_proxy_host` 填 Worker 域名。
 
 **Fanbox 配置缺省提示**: 当 `fanbox_sessid` 未配置且访问受限内容时，会自动返回 `data/helpmsg.json` 的 `pixiv_fanbox_sessid_missing` 提示。
 

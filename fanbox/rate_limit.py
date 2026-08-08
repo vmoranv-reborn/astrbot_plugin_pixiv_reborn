@@ -47,23 +47,24 @@ def classify_http_error(status: int, raw_body: str) -> Exception:
     """按状态码与响应体分类错误。"""
     if status in (401, 403):
         snippet = (raw_body or "").lstrip()[:20].lower()
-        # 403 + HTML 错误页：Cookie 有效但缺 cf_clearance 被 WAF 拦（实测于数据中心 IP）
+        # 403 + HTML 错误页：指纹/凭证不被 WAF 认可（实测：同族指纹伪装可通过）
         if status == 403 and (snippet.startswith("<html") or snippet.startswith("<!doctype")):
             return CookieInvalidError(
-                "HTTP 403：请求被 FANBOX 拦截（Cookie 有效但仍需浏览器验证），"
-                "请在 fanbox_cookie 中配置完整 Cookie（含 cf_clearance），"
-                "并将 fanbox_user_agent 设为与浏览器一致。"
+                "HTTP 403：请求被 FANBOX 拦截（浏览器指纹或凭证未通过验证），"
+                "建议：配置 fanbox_dl_impersonate 为浏览器同族指纹（Edge 用 edge101，"
+                "Chrome 用 chrome131），必要时配置 fanbox_cf_clearance，"
+                "fanbox_user_agent 与浏览器一致。"
             )
         return CookieInvalidError(
             f"HTTP {status}：Cookie 失效或权限不足（可能未订阅该创作者方案），"
-            "请更新 fanbox_sessid（FANBOXSESSID）与 fanbox_cookie 后重试。"
+            "请更新 fanbox_sessid（FANBOXSESSID）后重试。"
         )
     if status == 429:
         return RateLimitError("HTTP 429：请求过于频繁。")
     snippet = (raw_body or "")[:200].lower()
     if "<html" in snippet or "cloudflare" in snippet or "attention required" in snippet:
         return CloudflareBlockError(
-            f"HTTP {status}：疑似被 Cloudflare 拦截，建议配置 fanbox_cookie"
-            "（含 cf_clearance）与浏览器一致的 fanbox_user_agent。"
+            f"HTTP {status}：疑似被 Cloudflare 拦截，建议配置 fanbox_cf_clearance"
+            "与浏览器一致的 fanbox_user_agent。"
         )
     return RuntimeError(f"HTTP {status}: {(raw_body or '')[:200]}")

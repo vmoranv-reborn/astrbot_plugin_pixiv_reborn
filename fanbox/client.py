@@ -1,6 +1,7 @@
 """Fanbox 官方 API 封装：分页拉取、帖子详情、二进制下载。"""
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable
 
@@ -18,6 +19,17 @@ from .rate_limit import (
     RateLimiter,
     classify_http_error,
 )
+
+try:  # curl_cffi 为可选依赖：指纹伪装后端（过 Cloudflare）
+    from curl_cffi.requests import AsyncSession as CffiAsyncSession
+    from curl_cffi.requests.exceptions import RequestException as CffiRequestError
+except ImportError:
+    CffiAsyncSession = None
+    CffiRequestError = ()  # type: ignore[assignment]
+
+_NETWORK_ERRORS: tuple = (aiohttp.ClientError, asyncio.TimeoutError, OSError)
+if CffiAsyncSession is not None:
+    _NETWORK_ERRORS = _NETWORK_ERRORS + (CffiRequestError,)
 
 API_BASE = "https://api.fanbox.cc"
 LIST_PAGE_LIMIT = 300  # 大分页减少请求次数
@@ -37,6 +49,7 @@ class FanboxAPIClient:
         rate_limiter: RateLimiter | None = None,
         cancel_event: asyncio.Event | None = None,
         api_host: str = "",
+        impersonate: str = "",
     ):
         self._cookie_getter = cookie_getter
         self._ua_getter = ua_getter
@@ -45,6 +58,9 @@ class FanboxAPIClient:
         self._cancel_event = cancel_event
         # 可选反代 host（复用 pixiv api_proxy_host 同思路，CF Workers 边缘出口过 WAF）
         self._api_base = f"https://{api_host}" if api_host else API_BASE
+        # TLS/HTTP2 指纹伪装后端（curl_cffi），如 edge101；空则走 aiohttp
+        self._impersonate = impersonate
+        self._cffi_session = None
         self._cf_consecutive = 0
 
     def set_cancel_event(self, event: asyncio.Event):
@@ -77,6 +93,29 @@ class FanboxAPIClient:
             headers["Cookie"] = cookie
         return headers
 
+    def _get_cffi_session(self):
+        """curl_cffi 会话懒加载（指纹伪装后端）。"""
+        if CffiAsyncSession is None:
+            raise RuntimeError(
+                "配置了 fanbox_dl_impersonate 但未安装 curl_cffi，请 pip install curl_cffi"
+            )
+        if self._cffi_session is None:
+            self._cffi_session = CffiAsyncSession(
+                impersonate=self._impersonate, timeout=30
+            )
+        return self._cffi_session
+
+    async def _raw_get(self, url: str, headers: dict[str, str]):
+        """GET 原文请求，返回 (status, text, headers)；按配置选择后端。"""
+        proxy = self._proxy_getter()
+        if self._impersonate:
+            resp = await self._get_cffi_session().get(url, headers=headers, proxy=proxy or None)
+            return resp.status_code, resp.text, resp.headers
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, headers=headers, proxy=proxy) as resp:
+                return resp.status, await resp.text(), resp.headers
+
     async def _get_json(self, url: str, referer: str) -> Any:
         """带限流与 429/Cloudflare 重试的 JSON GET。"""
         last_error: Exception | None = None
@@ -84,40 +123,35 @@ class FanboxAPIClient:
             self._check_cancelled()
             await self._rate_limiter.acquire()
             try:
-                timeout = aiohttp.ClientTimeout(total=30)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.get(
-                        url,
-                        headers=self._build_headers(referer),
-                        proxy=self._proxy_getter(),
-                    ) as resp:
-                        raw = await resp.text()
-                        if resp.status == 429:
-                            retry_after = None
-                            try:
-                                retry_after = float(resp.headers.get("Retry-After", ""))
-                            except (TypeError, ValueError):
-                                pass
-                            last_error = classify_http_error(429, raw)
-                            logger.warning(
-                                f"Pixiv 插件：Fanbox 429，第 {attempt + 1} 次退避 - {url}"
-                            )
-                            await self._rate_limiter.backoff_429(attempt, retry_after)
-                            continue
-                        if resp.status != 200:
-                            raise classify_http_error(resp.status, raw)
-                        try:
-                            payload = await resp.json(content_type=None)
-                        except Exception as exc:
-                            raise CloudflareBlockError(
-                                f"Fanbox 返回非 JSON 响应，疑似 Cloudflare 拦截: {raw[:200]}"
-                            ) from exc
-                        self._cf_consecutive = 0
-                        if isinstance(payload, dict) and payload.get("error"):
-                            error = payload["error"]
-                            msg = error.get("message") if isinstance(error, dict) else str(error)
-                            raise RuntimeError(f"Fanbox API 错误: {msg or error}")
-                        return payload
+                status, raw, resp_headers = await self._raw_get(
+                    url, self._build_headers(referer)
+                )
+                if status == 429:
+                    retry_after = None
+                    try:
+                        retry_after = float(resp_headers.get("Retry-After", ""))
+                    except (TypeError, ValueError):
+                        pass
+                    last_error = classify_http_error(429, raw)
+                    logger.warning(
+                        f"Pixiv 插件：Fanbox 429，第 {attempt + 1} 次退避 - {url}"
+                    )
+                    await self._rate_limiter.backoff_429(attempt, retry_after)
+                    continue
+                if status != 200:
+                    raise classify_http_error(status, raw)
+                try:
+                    payload = json.loads(raw)
+                except Exception as exc:
+                    raise CloudflareBlockError(
+                        f"Fanbox 返回非 JSON 响应，疑似 Cloudflare 拦截: {raw[:200]}"
+                    ) from exc
+                self._cf_consecutive = 0
+                if isinstance(payload, dict) and payload.get("error"):
+                    error = payload["error"]
+                    msg = error.get("message") if isinstance(error, dict) else str(error)
+                    raise RuntimeError(f"Fanbox API 错误: {msg or error}")
+                return payload
             except CloudflareBlockError as exc:
                 self._cf_consecutive += 1
                 if self._cf_consecutive >= MAX_CF_CONSECUTIVE:
@@ -129,7 +163,7 @@ class FanboxAPIClient:
                 await self._rate_limiter.backoff_429(attempt)
             except asyncio.CancelledError:
                 raise
-            except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+            except _NETWORK_ERRORS as exc:
                 # 网络层失败常见于 Cloudflare 拦截（Failed to fetch / 连接重置）
                 self._cf_consecutive += 1
                 if self._cf_consecutive >= MAX_CF_CONSECUTIVE:
@@ -208,33 +242,23 @@ class FanboxAPIClient:
         for _ in range(MAX_DOWNLOAD_RETRIES):
             self._check_cancelled()
             try:
-                timeout = aiohttp.ClientTimeout(total=300, connect=15)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.get(
-                        current_url, headers=headers, proxy=self._proxy_getter()
-                    ) as resp:
-                        if resp.status == 500 and (await resp.text()) == "failed to thumbnailing":
-                            # 原图不可用（过大等），降级缩略图，对齐 fanbox-dl
-                            if fallback_url:
-                                logger.info(
-                                    f"Pixiv 插件：Fanbox 原图不可用，降级缩略图 - {current_url}"
-                                )
-                                current_url = fallback_url
-                                continue
-                            raise RuntimeError("原图不可用（failed to thumbnailing）且无缩略图可降级。")
-                        if resp.status != 200:
-                            raise classify_http_error(resp.status, await resp.text())
-                        total = 0
-                        with open(dest, "wb") as fp:
-                            async for chunk in resp.content.iter_chunked(64 * 1024):
-                                self._check_cancelled()
-                                fp.write(chunk)
-                                total += len(chunk)
-                        return total
+                status, body_text = await self._raw_download(current_url, headers, dest)
+                if status == 500 and body_text == "failed to thumbnailing":
+                    # 原图不可用（过大等），降级缩略图，对齐 fanbox-dl
+                    if fallback_url:
+                        logger.info(
+                            f"Pixiv 插件：Fanbox 原图不可用，降级缩略图 - {current_url}"
+                        )
+                        current_url = fallback_url
+                        continue
+                    raise RuntimeError("原图不可用（failed to thumbnailing）且无缩略图可降级。")
+                if status != 200:
+                    raise classify_http_error(status, body_text)
+                return dest.stat().st_size
             except asyncio.CancelledError:
                 self._remove_partial(dest)
                 raise
-            except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as exc:
+            except _NETWORK_ERRORS as exc:
                 last_error = exc
                 self._remove_partial(dest)
                 logger.warning(
@@ -245,6 +269,33 @@ class FanboxAPIClient:
 
         self._remove_partial(dest)
         raise RuntimeError(f"下载失败（重试 {MAX_DOWNLOAD_RETRIES} 次）: {last_error}")
+
+    async def _raw_download(self, url: str, headers: dict[str, str], dest: Path):
+        """流式 GET：200 时写盘，返回 (status, 非200时的响应文本)。"""
+        proxy = self._proxy_getter()
+        if self._impersonate:
+            session = self._get_cffi_session()
+            resp = await session.get(url, headers=headers, proxy=proxy or None, stream=True)
+            try:
+                if resp.status_code != 200:
+                    return resp.status_code, resp.text
+                with open(dest, "wb") as fp:
+                    async for chunk in resp.aiter_content(64 * 1024):
+                        self._check_cancelled()
+                        fp.write(chunk)
+                return 200, ""
+            finally:
+                await resp.aclose()
+        timeout = aiohttp.ClientTimeout(total=300, connect=15)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, headers=headers, proxy=proxy) as resp:
+                if resp.status != 200:
+                    return resp.status, await resp.text()
+                with open(dest, "wb") as fp:
+                    async for chunk in resp.content.iter_chunked(64 * 1024):
+                        self._check_cancelled()
+                        fp.write(chunk)
+                return 200, ""
 
     @staticmethod
     def _remove_partial(dest: Path):
