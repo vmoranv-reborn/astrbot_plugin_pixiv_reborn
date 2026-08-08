@@ -145,6 +145,7 @@ class PixivConfig:
         )
         if self.fanbox_data_source not in {"auto", "official", "nekohouse"}:
             self.fanbox_data_source = "auto"
+        self.fanbox_api_proxy_host = self.config.get("fanbox_api_proxy_host", "").strip()
         self.image_proxy_host = self.config.get("image_proxy_host", "i.pixiv.re")
         self.use_image_proxy = self.config.get("use_image_proxy", True)
         self.api_proxy_host = self.config.get("api_proxy_host", "").strip()

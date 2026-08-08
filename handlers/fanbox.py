@@ -1541,6 +1541,7 @@ class FanboxHandler:
             cookie_getter=self._fanbox_cookie_header,
             ua_getter=self._fanbox_user_agent,
             proxy_getter=self._get_proxy,
+            api_host=getattr(self.pixiv_config, "fanbox_api_proxy_host", ""),
         )
 
     def _make_dl_done_callback(self, event: AstrMessageEvent):

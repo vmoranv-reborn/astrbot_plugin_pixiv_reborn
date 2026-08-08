@@ -36,17 +36,26 @@ class FanboxAPIClient:
         proxy_getter: Callable[[], str | None],
         rate_limiter: RateLimiter | None = None,
         cancel_event: asyncio.Event | None = None,
+        api_host: str = "",
     ):
         self._cookie_getter = cookie_getter
         self._ua_getter = ua_getter
         self._proxy_getter = proxy_getter
         self._rate_limiter = rate_limiter or RateLimiter()
         self._cancel_event = cancel_event
+        # 可选反代 host（复用 pixiv api_proxy_host 同思路，CF Workers 边缘出口过 WAF）
+        self._api_base = f"https://{api_host}" if api_host else API_BASE
         self._cf_consecutive = 0
 
     def set_cancel_event(self, event: asyncio.Event):
         """由下载管理器注入取消信号。"""
         self._cancel_event = event
+
+    def _rewrite_url(self, url: str) -> str:
+        """API 返回的绝对分页 URL 在反代模式下重写到反代 host。"""
+        if self._api_base != API_BASE and url.startswith(API_BASE):
+            return self._api_base + url[len(API_BASE):]
+        return url
 
     def _check_cancelled(self):
         if self._cancel_event is not None and self._cancel_event.is_set():
@@ -137,7 +146,7 @@ class FanboxAPIClient:
     async def iter_creator_posts(self, creator_id: str) -> AsyncIterator[FanboxPost]:
         """遍历创作者全部帖子摘要：优先 limit=300 + nextPage，旧格式回退 paginateCreator。"""
         referer = f"https://{creator_id}.fanbox.cc/"
-        url = f"{API_BASE}/post.listCreator?creatorId={creator_id}&limit={LIST_PAGE_LIMIT}"
+        url = f"{self._api_base}/post.listCreator?creatorId={creator_id}&limit={LIST_PAGE_LIMIT}"
         seen: set[str] = set()
 
         payload = await self._get_json(url, referer)
@@ -146,12 +155,12 @@ class FanboxAPIClient:
             # 旧格式回退：paginateCreator 返回 pageUrls 逐页拉取（fanbox-dl 原始路径）
             page_urls = parse_page_urls(
                 await self._get_json(
-                    f"{API_BASE}/post.paginateCreator?creatorId={creator_id}", referer
+                    f"{self._api_base}/post.paginateCreator?creatorId={creator_id}", referer
                 )
             )
             for page_url in page_urls:
                 self._check_cancelled()
-                page_payload = await self._get_json(page_url, referer)
+                page_payload = await self._get_json(self._rewrite_url(page_url), referer)
                 page_posts, _ = parse_post_list(page_payload)
                 for post in page_posts:
                     if post.id in seen:
@@ -169,13 +178,13 @@ class FanboxAPIClient:
             if not next_page:
                 return
             self._check_cancelled()
-            payload = await self._get_json(next_page, referer)
+            payload = await self._get_json(self._rewrite_url(next_page), referer)
             posts, next_page = parse_post_list(payload)
 
     async def get_post_detail(self, post_id: str) -> FanboxPost | None:
         """post.info：受限或空 body 返回 None。"""
         payload = await self._get_json(
-            f"{API_BASE}/post.info?postId={post_id}", "https://www.fanbox.cc/"
+            f"{self._api_base}/post.info?postId={post_id}", "https://www.fanbox.cc/"
         )
         post = parse_post_info(payload)
         if post is None or post.is_restricted:

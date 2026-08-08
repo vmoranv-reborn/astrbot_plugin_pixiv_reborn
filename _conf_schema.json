@@ -40,6 +40,13 @@
           "nekohouse"
       ]
   },
+  "fanbox_api_proxy_host": {
+      "type": "string",
+      "title": "Fanbox API 反代服务器",
+      "description": "Fanbox 批量下载走自建 Cloudflare Workers 反代。格式：域名（如 example.com），无需 https://。留空直连 api.fanbox.cc。",
+      "hint": "带 Cookie 请求 post.info 被 Cloudflare 拦（403 HTML，多为机房 IP）时使用。与 pixiv-proxy 同模式自建 Worker，upstream 改为 api.fanbox.cc 即可。",
+      "default": ""
+  },
   "return_count": {
       "description": "每次搜索返回的图片数量",
       "type": "int",
