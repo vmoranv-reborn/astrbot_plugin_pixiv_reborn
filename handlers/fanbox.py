@@ -1558,14 +1558,28 @@ class FanboxHandler:
 
         return on_done
 
+    @staticmethod
+    def _raw_command_args(event: AstrMessageEvent) -> str:
+        """从原始消息取命令名后的完整参数串。
+
+        AstrBot 按空格向 handler 注入参数，单参数签名会丢弃多余 token
+        （如 /pixiv_fanbox_dl foo --type file 只注入 foo），故从原文重取。
+        """
+        raw = re.sub(r"\s+", " ", event.get_message_str().strip())
+        parts = raw.split(" ", 1)
+        return parts[1].strip() if len(parts) > 1 else ""
+
     def _parse_dl_options(self, tokens: list[str]):
         """解析下载选项，返回 (creator_input, options_dict)；出错抛 ValueError。"""
         creator_input = None
-        options: dict[str, Any] = {"limit": None, "since": None, "dl_type": "all", "dir_name": None}
+        options: dict[str, Any] = {"limit": None, "since": None, "dl_type": "all", "dir_name": None, "force": False}
         i = 0
         while i < len(tokens):
             tok = tokens[i]
-            if tok == "--limit" and i + 1 < len(tokens):
+            if tok == "--force":
+                options["force"] = True
+                i += 1
+            elif tok == "--limit" and i + 1 < len(tokens):
                 if not tokens[i + 1].isdigit():
                     raise ValueError("--limit 需要正整数")
                 options["limit"] = max(1, int(tokens[i + 1]))
@@ -1598,12 +1612,12 @@ class FanboxHandler:
 
     async def pixiv_fanbox_dl(self, event: AstrMessageEvent, args: str = ""):
         """批量下载创作者 Fanbox 帖子（后台任务）。"""
-        text = args.strip()
+        text = self._raw_command_args(event)
         if not text or text.lower() == "help":
             yield event.plain_result(
                 get_help_message(
                     "pixiv_fanbox_dl",
-                    "用法: /pixiv_fanbox_dl <creatorId|链接> [--limit N] [--since YYYY-MM-DD] [--type image|file|all] [--dir 名称]",
+                    "用法: /pixiv_fanbox_dl <creatorId|链接> [--limit N] [--since YYYY-MM-DD] [--type image|file|all] [--dir 名称] [--force]",
                 )
             )
             return
@@ -1638,6 +1652,7 @@ class FanboxHandler:
             limit=options["limit"],
             since=options["since"],
             dl_type=options["dl_type"],
+            force=options["force"],
             on_done=self._make_dl_done_callback(event),
         )
         if conflict:
@@ -1649,6 +1664,8 @@ class FanboxHandler:
             f"since={options['since'] or '不限'}",
             f"type={options['dl_type']}",
         ]
+        if options["force"]:
+            opt_parts.append("force=是")
         yield event.plain_result(
             f"Fanbox 批量下载任务已启动：{creator_id}\n"
             f"保存目录: fanbox/{dir_name}/ | {' | '.join(opt_parts)}\n"
@@ -1673,7 +1690,7 @@ class FanboxHandler:
 
     async def pixiv_fanbox_dl_view(self, event: AstrMessageEvent, args: str = ""):
         """查看已下载内容：列表 / 发送单帖 / 打包发送。"""
-        text = args.strip()
+        text = self._raw_command_args(event)
         if not text or text.lower() == "help":
             yield event.plain_result(
                 get_help_message(

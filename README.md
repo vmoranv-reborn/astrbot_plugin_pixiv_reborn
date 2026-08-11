@@ -52,6 +52,14 @@
 - `/pixiv_fanbox_recommended [数量]` - 获取推荐创作者
 - `/pixiv_fanbox_artist <关键词> [数量]` - 按 Nekohouse artists 搜索 Fanbox 创作者
 
+### Fanbox 批量下载
+- `/pixiv_fanbox_dl <creatorId|链接> [--limit N] [--since YYYY-MM-DD] [--type image|file|all] [--dir 名称] [--force]` - 后台批量下载创作者帖子（全局同时仅一个任务）
+- `/pixiv_fanbox_dl_status` - 查看下载进度（含当前速度与各文件下载进度）
+- `/pixiv_fanbox_dl_stop` - 停止当前下载任务（当前文件下完后终止）
+- `/pixiv_fanbox_dl_view <creatorId|目录名> [postId|--pack]` - 查看已下载内容；`postId` 发送单帖，`--pack` 打包 zip 发送
+
+**断点续跑**：下载记录存于 `fanbox/<目录>/downloaded.json`，整帖成功才记录；中断或停止后重新执行同一命令，已完成的帖子与帖子内已存在的文件都会自动跳过，只补下缺失部分。加 `--force` 可忽略记录与已有文件，强制重新下载。
+
 ### 配置管理
 - `/pixiv_config show` - 显示当前配置
 - `/pixiv_config <参数名>` - 查看指定参数值
@@ -213,6 +221,13 @@
 /pixiv_fanbox_post 10451793
 /pixiv_fanbox_recommended 8
 /pixiv_fanbox_artist hannari 10
+
+# Fanbox 批量下载
+/pixiv_fanbox_dl harusono --limit 50 --type image
+/pixiv_fanbox_dl harusono --since 2026-01-01 --dir harusono_2026
+/pixiv_fanbox_dl_status
+/pixiv_fanbox_dl_stop
+/pixiv_fanbox_dl_view harusono --pack
 
 # 配置管理
 /pixiv_config show

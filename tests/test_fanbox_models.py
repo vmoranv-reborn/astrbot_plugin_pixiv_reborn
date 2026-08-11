@@ -1,10 +1,17 @@
 """fanbox 包解析与断点去重逻辑单测（payload 取自 fanbox-dl PR#104 测试用例）。"""
 
+import asyncio
 import json
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
+
+# 本地无 astrbot 环境时打桩，使 fanbox.downloader 可导入
+sys.modules.setdefault("astrbot", MagicMock())
+sys.modules.setdefault("astrbot.api", MagicMock())
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -163,6 +170,101 @@ class TestDownloadedStore(unittest.TestCase):
         for bad in ("../etc", "a/b", "a\\b", "..", ""):
             with self.assertRaises(ValueError):
                 validate_dir_name(bad)
+
+
+class TestDownloadOneSkip(unittest.IsolatedAsyncioTestCase):
+    """文件级断点：已存在的完整文件跳过不重复下载。"""
+
+    async def test_skips_existing_file(self):
+        from fanbox.downloader import FanboxDownloadManager
+
+        with tempfile.TemporaryDirectory() as tmp:
+            post_dir = Path(tmp)
+            (post_dir / "001.jpg").write_bytes(b"done")
+            mgr = FanboxDownloadManager(Path(tmp))
+            client = MagicMock()
+            client.download_asset = AsyncMock(return_value=100)
+            asset = FanboxImage(id="i1", extension="jpg", original_url="https://x/1.jpg")
+
+            result = await mgr._download_one(
+                client, asyncio.Semaphore(1), post_dir, 1, asset
+            )
+            self.assertEqual(result, 0)
+            client.download_asset.assert_not_called()
+
+    async def test_force_redownloads_existing_file(self):
+        from fanbox.downloader import FanboxDownloadManager
+
+        with tempfile.TemporaryDirectory() as tmp:
+            post_dir = Path(tmp)
+            (post_dir / "001.jpg").write_bytes(b"old")
+            mgr = FanboxDownloadManager(Path(tmp))
+            client = MagicMock()
+            client.download_asset = AsyncMock(return_value=100)
+            asset = FanboxImage(id="i1", extension="jpg", original_url="https://x/1.jpg")
+
+            result = await mgr._download_one(
+                client, asyncio.Semaphore(1), post_dir, 1, asset, force=True
+            )
+            self.assertEqual(result, 100)
+            client.download_asset.assert_called_once()
+
+    async def test_downloads_missing_file_and_clears_progress(self):
+        from fanbox.downloader import FanboxDownloadManager
+
+        with tempfile.TemporaryDirectory() as tmp:
+            mgr = FanboxDownloadManager(Path(tmp))
+            client = MagicMock()
+            client.download_asset = AsyncMock(return_value=100)
+            asset = FanboxImage(id="i1", extension="jpg", original_url="https://x/1.jpg")
+
+            result = await mgr._download_one(
+                client, asyncio.Semaphore(1), Path(tmp), 1, asset
+            )
+            self.assertEqual(result, 100)
+            client.download_asset.assert_called_once()
+            # 传入了进度回调
+            self.assertIn("on_progress", client.download_asset.call_args.kwargs)
+            # 完成后活动文件表已清空
+            self.assertEqual(mgr.progress.active_files, {})
+
+
+class TestProgressRender(unittest.TestCase):
+    def test_running_shows_speed_and_file_progress(self):
+        from fanbox.downloader import DownloadProgress
+
+        p = DownloadProgress(
+            creator_id="c",
+            dir_name="d",
+            state="running",
+            planned=10,
+            processed=3,
+            speed_bps=2 * 1024 * 1024,
+            started_at=time.time(),
+        )
+        p.active_files["003.jpg"] = (1024 * 1024, 2 * 1024 * 1024)
+        text = p.render()
+        self.assertIn("速度: 2.00 MB/s", text)
+        self.assertIn("003.jpg: 1.0/2.0 MB (50%)", text)
+
+    def test_done_hides_speed(self):
+        from fanbox.downloader import DownloadProgress
+
+        p = DownloadProgress(
+            creator_id="c", dir_name="d", state="done", speed_bps=1024 * 1024
+        )
+        self.assertNotIn("速度:", p.render())
+
+    def test_speed_window(self):
+        from fanbox.downloader import FanboxDownloadManager
+
+        with tempfile.TemporaryDirectory() as tmp:
+            mgr = FanboxDownloadManager(Path(tmp))
+            mgr._note_file_progress("a.jpg", 1000, 2000)
+            mgr._note_file_progress("a.jpg", 2000, 2000)
+            self.assertEqual(mgr.progress.active_files["a.jpg"], (2000, 2000))
+            # 窗口内两样本同刻，span<0.5 时速度计 0，不除零
+            self.assertGreaterEqual(mgr.progress.speed_bps, 0.0)
 
 
 if __name__ == "__main__":

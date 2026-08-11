@@ -1,10 +1,12 @@
 """Fanbox 下载任务管理：并发下载、落盘、downloaded.json 断点去重、打包。"""
 
 import asyncio
+import contextlib
 import json
 import re
 import shutil
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -15,8 +17,10 @@ from .client import FanboxAPIClient
 from .models import FanboxFile, FanboxImage, FanboxPost
 from .rate_limit import CookieInvalidError
 
-DOWNLOAD_CONCURRENCY = 2  # 文件下载并发
+DOWNLOAD_CONCURRENCY = 4  # 文件下载并发
+DETAIL_PREFETCH_QUEUE = 4  # 帖子详情预取队列深度
 MAX_PACK_SIZE_BYTES = 100 * 1024 * 1024  # 打包发送上限 100MB
+SPEED_WINDOW_SECONDS = 10.0  # 当前速度采样窗口
 DIR_NAME_RE = re.compile(r"^[\w一-鿿-]{1,64}$", re.UNICODE)
 _UNSAFE_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 
@@ -90,6 +94,8 @@ class DownloadProgress:
     failed: int = 0
     bytes_downloaded: int = 0
     current_post: str = ""
+    speed_bps: float = 0.0  # 当前下载速度（滑动窗口）
+    active_files: dict[str, tuple[int, int]] = field(default_factory=dict)  # 文件名 → (已下载, 总大小)
     errors: list[str] = field(default_factory=list)
     started_at: float = 0.0
     message: str = ""
@@ -107,8 +113,21 @@ class DownloadProgress:
             f" / 受限跳过 {self.skipped_restricted} / 失败 {self.failed}）",
             f"已下载: {mb:.1f} MB | 用时: {elapsed}s",
         ]
+        if self.state == "running":
+            speed_mb = self.speed_bps / 1024 / 1024
+            lines.append(f"速度: {speed_mb:.2f} MB/s")
         if self.current_post:
             lines.append(f"当前: {self.current_post}")
+        if self.state == "running" and self.active_files:
+            for fname, (done, total) in self.active_files.items():
+                done_mb = done / 1024 / 1024
+                if total:
+                    total_mb = total / 1024 / 1024
+                    lines.append(
+                        f"  {fname}: {done_mb:.1f}/{total_mb:.1f} MB ({done * 100 // total}%)"
+                    )
+                else:
+                    lines.append(f"  {fname}: {done_mb:.1f} MB")
         if self.message:
             lines.append(f"说明: {self.message}")
         if self.errors:
@@ -125,6 +144,7 @@ class FanboxDownloadManager:
         self.progress = DownloadProgress()
         self._task: asyncio.Task | None = None
         self._cancel_event: asyncio.Event | None = None
+        self._speed_window: deque[tuple[float, int]] = deque()
 
     @property
     def running(self) -> bool:
@@ -141,6 +161,7 @@ class FanboxDownloadManager:
         limit: int | None = None,
         since: str | None = None,
         dl_type: str = "all",
+        force: bool = False,
         on_done: Callable[[str], Awaitable[None]] | None = None,
     ) -> str | None:
         """启动后台任务；已有任务运行时返回冲突提示。"""
@@ -151,6 +172,7 @@ class FanboxDownloadManager:
             )
         self._cancel_event = asyncio.Event()
         client.set_cancel_event(self._cancel_event)
+        self._speed_window.clear()
         self.progress = DownloadProgress(
             creator_id=creator_id,
             dir_name=dir_name,
@@ -158,7 +180,7 @@ class FanboxDownloadManager:
             started_at=time.time(),
         )
         self._task = asyncio.create_task(
-            self._run(client, creator_id, dir_name, limit, since, dl_type, on_done)
+            self._run(client, creator_id, dir_name, limit, since, dl_type, force, on_done)
         )
         return None
 
@@ -182,6 +204,7 @@ class FanboxDownloadManager:
         limit: int | None,
         since: str | None,
         dl_type: str,
+        force: bool,
         on_done: Callable[[str], Awaitable[None]] | None,
     ):
         p = self.progress
@@ -195,7 +218,7 @@ class FanboxDownloadManager:
             # 先收集符合条件的帖子摘要（分页拉取阶段也受限流保护）
             targets: list[FanboxPost] = []
             async for summary in client.iter_creator_posts(creator_id):
-                if store.contains(summary.id):
+                if not force and store.contains(summary.id):
                     p.skipped_downloaded += 1
                     continue
                 if summary.is_restricted:
@@ -212,63 +235,79 @@ class FanboxDownloadManager:
             )
 
             consecutive_auth_errors = 0  # 连续 403 计数，区分单帖无权限与 Cookie 整体失效
-            for summary in targets:
-                if self._cancel_event and self._cancel_event.is_set():
-                    break
-                p.current_post = f"{summary.id} {summary.title[:40]}"
-                p.processed += 1
-                try:
-                    post = await client.get_post_detail(summary.id)
-                    if post is None:
-                        p.skipped_restricted += 1
-                        continue
-                    assets = post.list_downloadable()
-                    if dl_type == "image":
-                        assets = [a for a in assets if isinstance(a, FanboxImage)]
-                    elif dl_type == "file":
-                        assets = [a for a in assets if isinstance(a, FanboxFile)]
+            detail_queue: asyncio.Queue = asyncio.Queue(maxsize=DETAIL_PREFETCH_QUEUE)
+            prefetch_task = asyncio.create_task(
+                self._prefetch_details(client, targets, detail_queue)
+            )
+            try:
+                while True:
+                    if self._cancel_event and self._cancel_event.is_set():
+                        break
+                    item = await detail_queue.get()
+                    if item is None:
+                        break
+                    summary, post, fetch_error = item
+                    p.current_post = f"{summary.id} {summary.title[:40]}"
+                    p.processed += 1
+                    try:
+                        if fetch_error is not None:
+                            raise fetch_error
+                        if post is None:
+                            p.skipped_restricted += 1
+                            continue
+                        assets = post.list_downloadable()
+                        if dl_type == "image":
+                            assets = [a for a in assets if isinstance(a, FanboxImage)]
+                        elif dl_type == "file":
+                            assets = [a for a in assets if isinstance(a, FanboxFile)]
 
-                    post_dir = posts_root / f"{post.id}_{sanitize_filename(post.title)}"
-                    post_dir.mkdir(parents=True, exist_ok=True)
-                    self._write_content_md(post_dir, post, creator_id)
+                        post_dir = posts_root / f"{post.id}_{sanitize_filename(post.title)}"
+                        post_dir.mkdir(parents=True, exist_ok=True)
+                        self._write_content_md(post_dir, post, creator_id)
 
-                    results = await asyncio.gather(
-                        *(
-                            self._download_one(client, semaphore, post_dir, idx, asset)
-                            for idx, asset in enumerate(assets, start=1)
-                        ),
-                        return_exceptions=True,
-                    )
-                    failures = [r for r in results if isinstance(r, Exception)]
-                    for exc in failures:
-                        if isinstance(exc, asyncio.CancelledError):
-                            raise exc
-                    if failures:
-                        raise RuntimeError(
-                            f"{len(failures)}/{len(assets)} 个文件失败: {failures[0]}"
+                        results = await asyncio.gather(
+                            *(
+                                self._download_one(
+                                    client, semaphore, post_dir, idx, asset, force=force
+                                )
+                                for idx, asset in enumerate(assets, start=1)
+                            ),
+                            return_exceptions=True,
                         )
+                        failures = [r for r in results if isinstance(r, Exception)]
+                        for exc in failures:
+                            if isinstance(exc, asyncio.CancelledError):
+                                raise exc
+                        if failures:
+                            raise RuntimeError(
+                                f"{len(failures)}/{len(assets)} 个文件失败: {failures[0]}"
+                            )
 
-                    p.bytes_downloaded += sum(r for r in results if isinstance(r, int))
-                    store.add(post.id)  # 每帖全部成功才记录，支持断点续跑
-                    p.succeeded += 1
-                except asyncio.CancelledError:
-                    break
-                except Exception as exc:
-                    # 单帖 403 多为未订阅方案或缺 cf_clearance，按受限跳过；连续 5 次才判定整体失效
-                    if isinstance(exc, CookieInvalidError):
-                        p.skipped_restricted += 1
-                        consecutive_auth_errors += 1
-                        p.errors.append(f"{summary.id}: 无访问权限（未订阅方案或缺少 cf_clearance）")
-                        if consecutive_auth_errors >= 5:
-                            p.message = str(exc)
-                            break
-                        continue
-                    consecutive_auth_errors = 0
-                    p.failed += 1
-                    p.errors.append(f"{summary.id}: {exc}")
-                    logger.warning(
-                        f"Pixiv 插件：Fanbox 帖子下载失败 - {summary.id} - {exc}"
-                    )
+                        p.bytes_downloaded += sum(r for r in results if isinstance(r, int))
+                        store.add(post.id)  # 每帖全部成功才记录，支持断点续跑
+                        p.succeeded += 1
+                    except asyncio.CancelledError:
+                        break
+                    except Exception as exc:
+                        # 单帖 403 多为未订阅方案或缺 cf_clearance，按受限跳过；连续 5 次才判定整体失效
+                        if isinstance(exc, CookieInvalidError):
+                            p.skipped_restricted += 1
+                            consecutive_auth_errors += 1
+                            p.errors.append(f"{summary.id}: 无访问权限（未订阅方案或缺少 cf_clearance）")
+                            if consecutive_auth_errors >= 5:
+                                p.message = str(exc)
+                                break
+                            continue
+                        consecutive_auth_errors = 0
+                        p.failed += 1
+                        p.errors.append(f"{summary.id}: {exc}")
+                        logger.warning(
+                            f"Pixiv 插件：Fanbox 帖子下载失败 - {summary.id} - {exc}"
+                        )
+            finally:
+                prefetch_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await prefetch_task
 
             stopped = self._cancel_event is not None and self._cancel_event.is_set()
             p.state = "stopped" if stopped else "done"
@@ -280,6 +319,8 @@ class FanboxDownloadManager:
             p.message = str(exc)
             p.errors.append(str(exc))
             logger.error(f"Pixiv 插件：Fanbox 下载任务异常终止 - {exc}")
+        finally:
+            await client.close()  # 释放复用的 HTTP 会话
 
         summary_text = self._build_summary()
         logger.info(f"Pixiv 插件：Fanbox 下载任务结束\n{summary_text}")
@@ -290,6 +331,31 @@ class FanboxDownloadManager:
                 # 推送失败兜底：结果保留在 status 中可查
                 logger.warning(f"Pixiv 插件：Fanbox 下载结果推送失败 - {exc}")
 
+    async def _prefetch_details(
+        self,
+        client: FanboxAPIClient,
+        targets: list[FanboxPost],
+        queue: asyncio.Queue,
+    ):
+        """详情预取流水线：限流的详情请求与文件下载并行，缩短总耗时。
+
+        队列元素为 (摘要, 详情, 错误)，None 为结束哨兵。
+        """
+        try:
+            for summary in targets:
+                if self._cancel_event and self._cancel_event.is_set():
+                    break
+                try:
+                    post = await client.get_post_detail(summary.id)
+                    await queue.put((summary, post, None))
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    await queue.put((summary, None, exc))
+        finally:
+            with contextlib.suppress(asyncio.CancelledError):
+                await queue.put(None)
+
     async def _download_one(
         self,
         client: FanboxAPIClient,
@@ -297,6 +363,7 @@ class FanboxDownloadManager:
         post_dir: Path,
         index: int,
         asset: FanboxImage | FanboxFile,
+        force: bool = False,
     ) -> int:
         async with semaphore:
             if isinstance(asset, FanboxImage):
@@ -308,7 +375,37 @@ class FanboxDownloadManager:
                 ext = f".{asset.extension}" if asset.extension else ""
                 dest = post_dir / f"file_{name}{ext}"
                 fallback = None
-            return await client.download_asset(asset.url, dest, fallback_url=fallback)
+            if dest.exists() and not force:
+                # 已下载文件跳过；中断残文件由 client._remove_partial 清除，存在即完整
+                return 0
+            fname = dest.name
+            try:
+                return await client.download_asset(
+                    asset.url,
+                    dest,
+                    fallback_url=fallback,
+                    on_progress=lambda done, total: self._note_file_progress(
+                        fname, done, total
+                    ),
+                )
+            finally:
+                self.progress.active_files.pop(fname, None)
+
+    def _note_file_progress(self, fname: str, downloaded: int, total: int):
+        """更新文件进度并维护速度滑动窗口。"""
+        prev = self.progress.active_files.get(fname, (0, 0))[0]
+        self.progress.active_files[fname] = (downloaded, total)
+        delta = downloaded - prev
+        if delta <= 0:
+            return
+        now = time.monotonic()
+        self._speed_window.append((now, delta))
+        cutoff = now - SPEED_WINDOW_SECONDS
+        while self._speed_window and self._speed_window[0][0] < cutoff:
+            self._speed_window.popleft()
+        span = now - self._speed_window[0][0] if self._speed_window else 0.0
+        total_bytes = sum(b for _, b in self._speed_window)
+        self.progress.speed_bps = total_bytes / span if span > 0.5 else 0.0
 
     @staticmethod
     def _write_content_md(post_dir: Path, post: FanboxPost, creator_id: str):

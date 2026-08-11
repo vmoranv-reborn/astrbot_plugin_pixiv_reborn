@@ -61,7 +61,17 @@ class FanboxAPIClient:
         # TLS/HTTP2 指纹伪装后端（curl_cffi），如 edge101；空则走 aiohttp
         self._impersonate = impersonate
         self._cffi_session = None
+        self._aiohttp_session: aiohttp.ClientSession | None = None
         self._cf_consecutive = 0
+
+    async def close(self):
+        """关闭复用的 HTTP 会话，任务结束时调用。"""
+        if self._cffi_session is not None:
+            await self._cffi_session.close()
+            self._cffi_session = None
+        if self._aiohttp_session is not None:
+            await self._aiohttp_session.close()
+            self._aiohttp_session = None
 
     def set_cancel_event(self, event: asyncio.Event):
         """由下载管理器注入取消信号。"""
@@ -105,6 +115,12 @@ class FanboxAPIClient:
             )
         return self._cffi_session
 
+    def _get_aiohttp_session(self) -> aiohttp.ClientSession:
+        """aiohttp 会话懒加载：复用连接池（keep-alive），免每文件重建握手。"""
+        if self._aiohttp_session is None or self._aiohttp_session.closed:
+            self._aiohttp_session = aiohttp.ClientSession()
+        return self._aiohttp_session
+
     async def _raw_get(self, url: str, headers: dict[str, str]):
         """GET 原文请求，返回 (status, text, headers)；按配置选择后端。"""
         proxy = self._proxy_getter()
@@ -112,9 +128,10 @@ class FanboxAPIClient:
             resp = await self._get_cffi_session().get(url, headers=headers, proxy=proxy or None)
             return resp.status_code, resp.text, resp.headers
         timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url, headers=headers, proxy=proxy) as resp:
-                return resp.status, await resp.text(), resp.headers
+        async with self._get_aiohttp_session().get(
+            url, headers=headers, proxy=proxy, timeout=timeout
+        ) as resp:
+            return resp.status, await resp.text(), resp.headers
 
     async def _get_json(self, url: str, referer: str) -> Any:
         """带限流与 429/Cloudflare 重试的 JSON GET。"""
@@ -231,8 +248,12 @@ class FanboxAPIClient:
         dest: Path,
         fallback_url: str | None = None,
         referer: str = "https://www.fanbox.cc/",
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> int:
-        """流式下载到 dest，返回字节数；网络错误重试，500 缩略图失败时降级 fallback_url。"""
+        """流式下载到 dest，返回字节数；网络错误重试，500 缩略图失败时降级 fallback_url。
+
+        on_progress(已下载字节, 总大小)：每写一块回调，总大小未知时为 0。
+        """
         headers = self._build_headers(referer)
         headers["Accept"] = "*/*"
         wait = 1.0
@@ -242,7 +263,9 @@ class FanboxAPIClient:
         for _ in range(MAX_DOWNLOAD_RETRIES):
             self._check_cancelled()
             try:
-                status, body_text = await self._raw_download(current_url, headers, dest)
+                status, body_text = await self._raw_download(
+                    current_url, headers, dest, on_progress
+                )
                 if status == 500 and body_text == "failed to thumbnailing":
                     # 原图不可用（过大等），降级缩略图，对齐 fanbox-dl
                     if fallback_url:
@@ -270,7 +293,13 @@ class FanboxAPIClient:
         self._remove_partial(dest)
         raise RuntimeError(f"下载失败（重试 {MAX_DOWNLOAD_RETRIES} 次）: {last_error}")
 
-    async def _raw_download(self, url: str, headers: dict[str, str], dest: Path):
+    async def _raw_download(
+        self,
+        url: str,
+        headers: dict[str, str],
+        dest: Path,
+        on_progress: Callable[[int, int], None] | None = None,
+    ):
         """流式 GET：200 时写盘，返回 (status, 非200时的响应文本)。"""
         proxy = self._proxy_getter()
         if self._impersonate:
@@ -279,23 +308,34 @@ class FanboxAPIClient:
             try:
                 if resp.status_code != 200:
                     return resp.status_code, resp.text
+                total = int(resp.headers.get("Content-Length") or 0)
+                downloaded = 0
                 with open(dest, "wb") as fp:
                     async for chunk in resp.aiter_content(64 * 1024):
                         self._check_cancelled()
                         fp.write(chunk)
+                        downloaded += len(chunk)
+                        if on_progress:
+                            on_progress(downloaded, total)
                 return 200, ""
             finally:
                 await resp.aclose()
         timeout = aiohttp.ClientTimeout(total=300, connect=15)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url, headers=headers, proxy=proxy) as resp:
-                if resp.status != 200:
-                    return resp.status, await resp.text()
-                with open(dest, "wb") as fp:
-                    async for chunk in resp.content.iter_chunked(64 * 1024):
-                        self._check_cancelled()
-                        fp.write(chunk)
-                return 200, ""
+        async with self._get_aiohttp_session().get(
+            url, headers=headers, proxy=proxy, timeout=timeout
+        ) as resp:
+            if resp.status != 200:
+                return resp.status, await resp.text()
+            total = int(resp.headers.get("Content-Length") or 0)
+            downloaded = 0
+            with open(dest, "wb") as fp:
+                async for chunk in resp.content.iter_chunked(64 * 1024):
+                    self._check_cancelled()
+                    fp.write(chunk)
+                    downloaded += len(chunk)
+                    if on_progress:
+                        on_progress(downloaded, total)
+            return 200, ""
 
     @staticmethod
     def _remove_partial(dest: Path):
