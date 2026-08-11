@@ -82,6 +82,13 @@ class PixivConfig:
         self.config = config
         self._load_config()
 
+    def _get_int(self, key: str, default: int) -> int:
+        """读取整数配置，非法值回退默认。"""
+        try:
+            return int(self.config.get(key, default) or default)
+        except (TypeError, ValueError):
+            return default
+
     def _load_config(self):
         """加载配置项"""
         self.proxy = self.config.get("proxy", "").strip()
@@ -138,13 +145,26 @@ class PixivConfig:
             "random_sent_illust_retention_days", 7
         )
         self.fanbox_sessid = self.config.get("fanbox_sessid", "").strip()
-        self.fanbox_cookie = self.config.get("fanbox_cookie", "").strip()
+        self.fanbox_cf_clearance = self.config.get("fanbox_cf_clearance", "").strip()
         self.fanbox_user_agent = self.config.get("fanbox_user_agent", "").strip()
         self.fanbox_data_source = (
             str(self.config.get("fanbox_data_source", "auto") or "auto").strip().lower()
         )
         if self.fanbox_data_source not in {"auto", "official", "nekohouse"}:
             self.fanbox_data_source = "auto"
+        self.fanbox_api_proxy_host = self.config.get("fanbox_api_proxy_host", "").strip()
+        # TLS 指纹伪装（curl_cffi），如 edge101；留空走默认 aiohttp
+        self.fanbox_dl_impersonate = self.config.get("fanbox_dl_impersonate", "").strip()
+        # 批量下载策略参数（非必要不修改，见 _conf_schema.json hint）
+        self.fanbox_dl_page_limit = self._get_int("fanbox_dl_page_limit", 300)
+        self.fanbox_dl_max_429_retries = self._get_int("fanbox_dl_max_429_retries", 4)
+        self.fanbox_dl_max_cf_consecutive = self._get_int(
+            "fanbox_dl_max_cf_consecutive", 3
+        )
+        self.fanbox_dl_max_retries = self._get_int("fanbox_dl_max_retries", 5)
+        self.fanbox_dl_concurrency = self._get_int("fanbox_dl_concurrency", 4)
+        self.fanbox_dl_prefetch_queue = self._get_int("fanbox_dl_prefetch_queue", 4)
+        self.fanbox_dl_pack_size_mb = self._get_int("fanbox_dl_pack_size_mb", 100)
         self.image_proxy_host = self.config.get("image_proxy_host", "i.pixiv.re")
         self.use_image_proxy = self.config.get("use_image_proxy", True)
         self.api_proxy_host = self.config.get("api_proxy_host", "").strip()
@@ -181,7 +201,7 @@ class PixivConfig:
             f"subscription_force_forward={self.subscription_force_forward}, "
             f"proxy='{effective_proxy or '未使用'}', "
             f"fanbox_sessid={'已设置' if self.fanbox_sessid else '未设置'}, "
-            f"fanbox_cookie={'已设置' if self.fanbox_cookie else '未设置'}, "
+            f"fanbox_cf_clearance={'已设置' if self.fanbox_cf_clearance else '未设置'}, "
             f"fanbox_user_agent={'已设置' if self.fanbox_user_agent else '未设置'}, "
             f"fanbox_data_source='{self.fanbox_data_source}'"
         )
@@ -258,8 +278,16 @@ class PixivConfigManager:
             "random_search_max_interval": {"type": "int", "min": 1, "max": 1440},
             "proxy": {"type": "string", "hidden": True},
             "fanbox_sessid": {"type": "string", "hidden": True},
-            "fanbox_cookie": {"type": "string", "hidden": True},
+            "fanbox_cf_clearance": {"type": "string", "hidden": True},
             "random_sent_illust_retention_days": {"type": "int", "min": 1, "max": 365},
+            # Fanbox 批量下载策略参数（非必要不修改）
+            "fanbox_dl_page_limit": {"type": "int", "min": 1, "max": 300, "hidden": True},
+            "fanbox_dl_max_429_retries": {"type": "int", "min": 0, "max": 20, "hidden": True},
+            "fanbox_dl_max_cf_consecutive": {"type": "int", "min": 1, "max": 20, "hidden": True},
+            "fanbox_dl_max_retries": {"type": "int", "min": 0, "max": 20, "hidden": True},
+            "fanbox_dl_concurrency": {"type": "int", "min": 1, "max": 16, "hidden": True},
+            "fanbox_dl_prefetch_queue": {"type": "int", "min": 1, "max": 32, "hidden": True},
+            "fanbox_dl_pack_size_mb": {"type": "int", "min": 1, "max": 2048, "hidden": True},
         }
 
     def get_help_text(self) -> str:

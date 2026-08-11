@@ -52,6 +52,14 @@
 - `/pixiv_fanbox_recommended [数量]` - 获取推荐创作者
 - `/pixiv_fanbox_artist <关键词> [数量]` - 按 Nekohouse artists 搜索 Fanbox 创作者
 
+### Fanbox 批量下载
+- `/pixiv_fanbox_dl <creatorId|链接> [--limit N] [--since YYYY-MM-DD] [--type image|file|all] [--dir 名称] [--force]` - 后台批量下载创作者帖子（全局同时仅一个任务）
+- `/pixiv_fanbox_dl_status` - 查看下载进度（含当前速度与各文件下载进度）
+- `/pixiv_fanbox_dl_stop` - 停止当前下载任务（当前文件下完后终止）
+- `/pixiv_fanbox_dl_view <creatorId|目录名> [postId|--pack]` - 查看已下载内容；`postId` 发送单帖，`--pack` AES 加密打包 zip 发送（密码随消息给出，超 100MB 自动分卷）
+
+**断点续跑**：下载记录存于 `fanbox/<目录>/downloaded.json`，整帖成功才记录；中断或停止后重新执行同一命令，已完成的帖子与帖子内已存在的文件都会自动跳过，只补下缺失部分。加 `--force` 可忽略记录与已有文件，强制重新下载。
+
 ### 配置管理
 - `/pixiv_config show` - 显示当前配置
 - `/pixiv_config <参数名>` - 查看指定参数值
@@ -214,6 +222,13 @@
 /pixiv_fanbox_recommended 8
 /pixiv_fanbox_artist hannari 10
 
+# Fanbox 批量下载
+/pixiv_fanbox_dl harusono --limit 50 --type image
+/pixiv_fanbox_dl harusono --since 2026-01-01 --dir harusono_2026
+/pixiv_fanbox_dl_status
+/pixiv_fanbox_dl_stop
+/pixiv_fanbox_dl_view harusono --pack
+
 # 配置管理
 /pixiv_config show
 /pixiv_config r18_mode 仅 R18
@@ -228,9 +243,12 @@
 |--------|------|--------|
 | `refresh_token` | Pixiv API 认证令牌 | 必填 |
 | `fanbox_sessid` | Fanbox 会话 Cookie（FANBOXSESSID，可选） | 留空 |
-| `fanbox_cookie` | Fanbox 完整 Cookie（建议含 `cf_clearance` + `FANBOXSESSID`） | 留空 |
+| `fanbox_cf_clearance` | Fanbox cf_clearance（仅官方 API 被 Cloudflare 拦截时填） | 留空 |
 | `fanbox_user_agent` | Fanbox 请求 UA（建议与浏览器一致） | 留空 |
 | `fanbox_data_source` | Fanbox 数据源：`auto`/`official`/`nekohouse` | auto |
+| `fanbox_api_proxy_host` | Fanbox 批量下载 API 反代域名（被 Cloudflare 拦时用） | 留空 |
+| `fanbox_dl_impersonate` | 批量下载 TLS 指纹伪装（如 `edge101`/`chrome131`，被拦时首选） | 留空 |
+| `fanbox_dl_*` | 批量下载策略参数：`page_limit`(300) `max_429_retries`(4) `max_cf_consecutive`(3) `max_retries`(5) `concurrency`(4) `prefetch_queue`(4) `pack_size_mb`(100)，非必要不修改 | 括号内为默认值 |
 | `return_count` | 每次搜索返回的图片数量 (1-10) | 1 |
 | `r18_mode` | R18内容处理模式 | 过滤 R18 |
 | `filter_r18g_only` | 是否额外过滤 R18G | false |
@@ -269,7 +287,9 @@
 
 **无代理直连失败**: 若在中国大陆无法使用代理且 ByPassSniApi 模式失效，可自建 Cloudflare Workers 反向代理。详见 [vmoranv/pixiv-proxy](https://github.com/vmoranv/pixiv-proxy) 仓库，部署后在插件配置中设置 `api_proxy_host` 为你的 Worker 域名。
 
-**Fanbox 帖子获取失败**: 可能触发 Cloudflare 或帖子受限。可先用 `/pixiv_fanbox_creator` 查看公开帖子，必要时配置 `fanbox_sessid`；若官方仍 403，建议同时配置 `fanbox_cookie`（完整 Cookie，含 `cf_clearance`）和 `fanbox_user_agent`（与浏览器一致）；也可切换 `fanbox_data_source=nekohouse` 仅走归档数据。
+**Fanbox 帖子获取失败**: 可能触发 Cloudflare 或帖子受限。可先用 `/pixiv_fanbox_creator` 查看公开帖子，必要时配置 `fanbox_sessid`；若官方仍 403，再配置 `fanbox_cf_clearance` 和 `fanbox_user_agent`（与浏览器一致）；也可切换 `fanbox_data_source=nekohouse` 仅走归档数据。
+
+**Fanbox 批量下载 403（HTML 拦截页）**: 带 Cookie 请求 `post.info` 被 Cloudflare 拦（列表接口不受影响）。实测有效解法：`fanbox_dl_impersonate` 填**与你浏览器同族**的指纹（Edge 填 `edge101`，Chrome 填 `chrome131`）+ `fanbox_user_agent`（与浏览器一致），必要时再配 `fanbox_cf_clearance`——cf_clearance 绑定签发时的浏览器指纹族，指纹不匹配同样会被拦。备选：自建 CF Workers 反代（与 pixiv-proxy 同模式，upstream 改为 `api.fanbox.cc`）后在 `fanbox_api_proxy_host` 填 Worker 域名。
 
 **Fanbox 配置缺省提示**: 当 `fanbox_sessid` 未配置且访问受限内容时，会自动返回 `data/helpmsg.json` 的 `pixiv_fanbox_sessid_missing` 提示。
 
