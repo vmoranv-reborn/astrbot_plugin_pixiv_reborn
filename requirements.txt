@@ -2,6 +2,7 @@ PyPDF2>=3.0.1
 pixivpy3>=3.0.0
 aiohttp>=3.8.0
 curl_cffi>=0.7.0
+pyzipper>=0.3.6
 peewee>=3.14.0
 apscheduler>=3.9.0
 fpdf2>=2.7.0

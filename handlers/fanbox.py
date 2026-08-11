@@ -1,3 +1,4 @@
+import asyncio
 import re
 import os
 import shlex
@@ -9,6 +10,7 @@ from urllib.parse import urljoin
 import aiohttp
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
+from astrbot.api.star import StarTools
 import astrbot.api.message_components as Comp
 
 from ..utils.help import get_help_message
@@ -19,9 +21,10 @@ from ..utils.pixiv_utils import (
 )
 
 from ..fanbox.client import FanboxAPIClient
+from ..fanbox.headers import build_api_headers, build_html_headers
+from ..fanbox.packer import cleanup_stale_packs
 from ..fanbox.downloader import (
     FanboxDownloadManager,
-    MAX_PACK_SIZE_BYTES,
     sanitize_filename,
     validate_dir_name,
 )
@@ -63,14 +66,22 @@ class FanboxHandler:
         self.temp_dir = temp_dir
         self._nekohouse_creators_cache: list[dict[str, Any]] | None = None
         # 批量下载管理器（数据目录缺省时用到再惰性创建）
-        self._dl_manager = FanboxDownloadManager(data_dir) if data_dir else None
+        self._dl_manager = self._new_dl_manager(data_dir) if data_dir else None
+
+    @property
+    def _new_dl_manager(self, data_dir: Path) -> FanboxDownloadManager:
+        """按 config 策略参数创建下载管理器。"""
+        cfg = self.pixiv_config
+        return FanboxDownloadManager(
+            data_dir,
+            concurrency=getattr(cfg, "fanbox_dl_concurrency", 4),
+            prefetch_queue=getattr(cfg, "fanbox_dl_prefetch_queue", 4),
+        )
 
     @property
     def dl_manager(self) -> FanboxDownloadManager:
         if self._dl_manager is None:
-            from astrbot.api.star import StarTools
-
-            self._dl_manager = FanboxDownloadManager(
+            self._dl_manager = self._new_dl_manager(
                 StarTools.get_data_dir("pixiv_search")
             )
         return self._dl_manager
@@ -127,18 +138,8 @@ class FanboxHandler:
         referer: str | None = None,
         timeout_seconds: int = 20,
     ) -> str:
-        headers = {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8,zh-CN;q=0.7",
-            "User-Agent": self._fanbox_user_agent(),
-        }
-        if referer:
-            headers["Referer"] = referer
-        if "fanbox.cc" in url.lower():
-            cookie = self._fanbox_cookie_header()
-            if cookie:
-                headers["Cookie"] = cookie
-
+        cookie = self._fanbox_cookie_header() if "fanbox.cc" in url.lower() else None
+        headers = build_html_headers(self._fanbox_user_agent(), referer, cookie)
         timeout = aiohttp.ClientTimeout(total=timeout_seconds)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(
@@ -478,19 +479,9 @@ class FanboxHandler:
         referer: str = "https://www.fanbox.cc/",
     ) -> Any:
         url = f"{self.API_BASE}/{endpoint}"
-        headers = {
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8,zh-CN;q=0.7",
-            "Origin": "https://www.fanbox.cc",
-            "Referer": referer,
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-site",
-            "User-Agent": self._fanbox_user_agent(),
-        }
-        cookie = self._fanbox_cookie_header()
-        if cookie:
-            headers["Cookie"] = cookie
+        headers = build_api_headers(
+            self._fanbox_user_agent(), referer, self._fanbox_cookie_header()
+        )
 
         timeout = aiohttp.ClientTimeout(total=20)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -522,11 +513,9 @@ class FanboxHandler:
 
     async def _resolve_creator_id_from_user_id(self, user_id: str) -> str:
         url = f"https://www.pixiv.net/fanbox/creator/{user_id}"
-        headers = {
-            "Referer": "https://www.pixiv.net/",
-            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8,zh-CN;q=0.7",
-            "User-Agent": self._fanbox_user_agent(),
-        }
+        headers = build_html_headers(
+            self._fanbox_user_agent(), referer="https://www.pixiv.net/"
+        )
 
         timeout = aiohttp.ClientTimeout(total=20)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -1535,12 +1524,17 @@ class FanboxHandler:
 
     def _create_dl_client(self) -> FanboxAPIClient:
         """创建批量下载客户端，复用本类的 Cookie/UA/代理。"""
+        cfg = self.pixiv_config
         return FanboxAPIClient(
             cookie_getter=self._fanbox_cookie_header,
             ua_getter=self._fanbox_user_agent,
             proxy_getter=self._get_proxy,
-            api_host=getattr(self.pixiv_config, "fanbox_api_proxy_host", ""),
-            impersonate=getattr(self.pixiv_config, "fanbox_dl_impersonate", ""),
+            api_host=getattr(cfg, "fanbox_api_proxy_host", ""),
+            impersonate=getattr(cfg, "fanbox_dl_impersonate", ""),
+            page_limit=getattr(cfg, "fanbox_dl_page_limit", 300),
+            max_429_retries=getattr(cfg, "fanbox_dl_max_429_retries", 4),
+            max_cf_consecutive=getattr(cfg, "fanbox_dl_max_cf_consecutive", 3),
+            max_download_retries=getattr(cfg, "fanbox_dl_max_retries", 5),
         )
 
     def _make_dl_done_callback(self, event: AstrMessageEvent):
@@ -1793,13 +1787,18 @@ class FanboxHandler:
             yield event.plain_result(text or "该帖子没有可发送的内容。")
 
     async def _dl_view_pack(self, event: AstrMessageEvent, dir_name: str):
-        temp_dir = self.temp_dir
-        if temp_dir is None:
-            from astrbot.api.star import StarTools
-
-            temp_dir = StarTools.get_data_dir("pixiv_search") / "temp"
+        temp_dir = Path(
+            self.temp_dir or StarTools.get_data_dir("pixiv_search") / "temp"
+        )
+        # 打包前清理过期残留，防止 temp_dir 磁盘堆积
+        removed = cleanup_stale_packs(temp_dir)
+        if removed:
+            logger.info(f"Pixiv 插件：清理 {removed} 个过期 Fanbox 打包文件")
+        pack_limit = getattr(self.pixiv_config, "fanbox_dl_pack_size_mb", 100) * 1024 * 1024
         try:
-            zip_path = self.dl_manager.pack_creator(dir_name, Path(temp_dir))
+            parts, password = self.dl_manager.pack_creator(
+                dir_name, temp_dir, part_limit=pack_limit
+            )
         except FileNotFoundError as e:
             yield event.plain_result(str(e))
             return
@@ -1808,15 +1807,35 @@ class FanboxHandler:
             yield event.plain_result(f"打包失败: {e}")
             return
 
-        size_mb = zip_path.stat().st_size / 1024 / 1024
-        if zip_path.stat().st_size > MAX_PACK_SIZE_BYTES:
-            yield event.plain_result(
-                f"压缩包 {size_mb:.1f} MB，超过平台发送上限（100MB），未发送。\n文件路径: {zip_path}"
+        total = len(parts)
+        for idx, zip_path in enumerate(parts, start=1):
+            size_mb = zip_path.stat().st_size / 1024 / 1024
+            part_text = f"（第 {idx}/{total} 卷）" if total > 1 else ""
+            if zip_path.stat().st_size > pack_limit:
+                yield event.plain_result(
+                    f"压缩包{part_text} {size_mb:.1f} MB，超过发送上限"
+                    f"（{pack_limit / 1024 / 1024:.0f}MB），未发送。"
+                    f"\n文件路径: {zip_path}\n解压密码: {password}"
+                )
+                continue
+            yield event.chain_result(
+                [
+                    Comp.File(name=zip_path.name, file=str(zip_path)),
+                    Comp.Plain(
+                        f"Fanbox 打包：{dir_name}{part_text}（{size_mb:.1f} MB）"
+                        f"\n解压密码: {password}"
+                    ),
+                ]
             )
-            return
-        yield event.chain_result(
-            [
-                Comp.File(name=zip_path.name, file=str(zip_path)),
-                Comp.Plain(f"Fanbox 打包：{dir_name}（{size_mb:.1f} MB）"),
-            ]
-        )
+        # 延迟删除已发送分卷，避免框架发送完成前文件被删
+        asyncio.create_task(self._delete_pack_files_later(parts))
+
+    @staticmethod
+    async def _delete_pack_files_later(parts: list[Path], delay: float = 300):
+        """发送后延迟清理分卷文件。"""
+        await asyncio.sleep(delay)
+        for p in parts:
+            try:
+                p.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning(f"Pixiv 插件：删除打包分卷失败 {p} - {exc}")

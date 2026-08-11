@@ -1,281 +1,330 @@
 {
-  "refresh_token": {
-      "description": "Pixiv Refresh Token",
-      "type": "string",
-      "hint": "用于 API 认证，安全性更高。获取方法请参考 pixiv-api 文档或网络教程。",
-      "default": "",
-      "is_sensitive": true,
-      "required": true
-  },
-  "fanbox_sessid": {
-      "description": "Pixiv Fanbox Session（FANBOXSESSID）",
-      "type": "string",
-      "hint": "用于访问受限 Fanbox 内容。格式通常为 `数字_字母数字`，可在浏览器 Cookie 的 FANBOXSESSID 中获取。",
-      "default": "",
-      "is_sensitive": true,
-      "required": false
-  },
-  "fanbox_cf_clearance": {
-      "description": "Fanbox cf_clearance（可选）",
-      "type": "string",
-      "hint": "仅当官方 API 被 Cloudflare 拦截（403）时填写。浏览器 F12 -> Application -> Cookies -> fanbox.cc 中复制 cf_clearance 的值。",
-      "default": "",
-      "is_sensitive": true,
-      "required": false
-  },
-  "fanbox_user_agent": {
-      "description": "Fanbox 请求 User-Agent（可选）",
-      "type": "string",
-      "hint": "建议填写与你浏览器一致的 UA；与 fanbox_cf_clearance 搭配可提升官方 API 通过率。",
-      "default": ""
-  },
-  "fanbox_data_source": {
-      "description": "Fanbox 数据源模式",
-      "type": "string",
-      "hint": "可选：auto(官方优先失败回退Nekohouse)、official(仅官方API)、nekohouse(仅Nekohouse归档)",
-      "default": "auto",
-      "options": [
-          "auto",
-          "official",
-          "nekohouse"
-      ]
-  },
-  "fanbox_api_proxy_host": {
-      "type": "string",
-      "title": "Fanbox API 反代服务器",
-      "description": "Fanbox 批量下载走自建 Cloudflare Workers 反代。格式：域名（如 example.com），无需 https://。留空直连 api.fanbox.cc。",
-      "hint": "带 Cookie 请求 post.info 被 Cloudflare 拦（403 HTML，多为机房 IP）时使用。与 pixiv-proxy 同模式自建 Worker，upstream 改为 api.fanbox.cc 即可。",
-      "default": ""
-  },
-  "fanbox_dl_impersonate": {
-      "type": "string",
-      "title": "Fanbox 下载 TLS 指纹伪装",
-      "description": "批量下载使用 curl_cffi 模拟指定浏览器指纹（如 edge101、chrome131）。留空走默认 aiohttp。",
-      "hint": "post.info 403 拦截页时的首选方案：填你浏览器同族指纹（Edge 用 edge101，Chrome 用 chrome131），必要时配上 fanbox_cf_clearance 与 fanbox_user_agent。需 pip install curl_cffi。",
-      "default": ""
-  },
-  "return_count": {
-      "description": "每次搜索返回的图片数量",
-      "type": "int",
-      "hint": "单次 /pixiv 命令回复的图片张数。有效范围: 1-10，超出范围的值会被自动限制在有效范围内。",
-      "default": 1,
-      "min": 1,
-      "max": 10
-  },
-  "r18_mode": {
-      "description": "R18 内容过滤模式",
-      "type": "string",
-      "hint": "选择如何处理 R18 内容：'过滤 R18' (默认), '允许 R18', '仅 R18'",
-      "default": "过滤 R18",
-      "options": [
-          "过滤 R18",
-          "允许 R18",
-          "仅 R18"
-      ]
-  },
-  "filter_r18g_only": {
-      "description": "额外过滤 R18G",
-      "type": "bool",
-      "hint": "开启后会额外过滤 R18G 内容。在 r18_mode=过滤 R18 时生效。",
-      "default": false
-  },
-  "ai_filter_mode": {
-      "description": "AI 生成作品过滤模式",
-      "type": "string",
-      "hint": "选择如何处理 AI 生成的作品：'显示 AI 作品' (默认), '过滤 AI 作品', '仅 AI 作品'",
-      "default": "显示 AI 作品",
-      "options": [
-          "显示 AI 作品",
-          "过滤 AI 作品",
-          "仅 AI 作品"
-      ]
-  },
-  "ai_detection_mode": {
-      "description": "AI 判定模式",
-      "type": "string",
-      "hint": "field_or_tag=字段或标签任一命中；field_only=仅看 illust_ai_type；tag_only=仅看标签关键词。",
-      "default": "field_or_tag",
-      "options": [
-          "field_or_tag",
-          "field_only",
-          "tag_only"
-      ]
-  },
-  "min_bookmarks": {
-      "description": "最小书签数过滤阈值",
-      "type": "int",
-      "hint": "过滤掉书签数小于该值的插画。设置为 0 表示关闭该过滤。",
-      "default": 0,
-      "min": 0,
-      "max": 100000000
-  },
-  "min_views": {
-      "description": "最小阅读量过滤阈值",
-      "type": "int",
-      "hint": "过滤掉阅读量小于该值的插画。设置为 0 表示关闭该过滤。",
-      "default": 0,
-      "min": 0,
-      "max": 100000000
-  },
-  "min_likes": {
-      "description": "最小点赞数过滤阈值",
-      "type": "int",
-      "hint": "过滤掉点赞数小于该值的插画。设置为 0 表示关闭该过滤；当 Pixiv 返回中缺少点赞字段时会自动忽略该项。",
-      "default": 0,
-      "min": 0,
-      "max": 100000000
-  },
-  "deep_search_depth": {
-      "description": "深度搜索时搜索页数深度",
-      "type": "int", 
-      "hint": "设置为 -1 表示无限制搜索，0 表示仅搜索第一页，其他值表示搜索页数。有效范围: -1 或 1-50。",
-      "default": 3,
-      "min": -1,
-      "max": 50
-  },
-  "show_details": {
-      "description": "是否在发送图片时附带详细信息",
-      "type": "bool",
-      "hint": "设置为 false 时，仅发送图片，不附带文字详情。",
-      "default": true
-  },
-  "forward_threshold": {
-      "description": "是否启用消息转发功能",
-      "type": "bool",
-      "hint": "设置为 true 时启用转发，false 时禁用转发。启用后所有图片都会以转发消息形式发送。",
-      "default": false
-  },
-  "pixiv_urlsearch_enabled": {
-      "description": "是否启用 Pixiv URL 搜索功能",
-      "type": "bool",
-      "hint": "设置为 true 时启用 Pixiv URL 搜索，false 时禁用。",
-      "default": true
-  },
-  "show_filter_result": {
-      "description": "是否显示过滤内容提示",
-      "type": "bool",
-      "hint": "设置为 true 时，过滤内容时会输出提示信息；false 则不输出。",
-      "default": true
-  },
-  "single_response_mode": {
-      "description": "单条合并消息模式",
-      "type": "bool",
-      "hint": "设置为 true 时，搜索完成后仅发送一条合并转发消息（包含汇总与图片），不发送中途进度提示。",
-      "default": true
-  },
-  "image_quality": {
-      "description": "默认发送的图片质量",
-      "type": "string",
-      "hint": "选择默认发送的图片质量：'original' (原图), 'large' (大图), 'medium' (中图)",
-      "default": "medium",
-      "options": [
-          "original",
-          "large",
-          "medium"
-      ]
-  },
-  "image_send_method": {
-    "description": "图片发送方式",
-    "type": "string",
-    "hint": "选择图片发送方式：'url' (直接通过URL发送，不下载，最快), 'file' (下载后通过文件路径发送), 'byte' (下载后通过base64发送)",
-    "default": "url",
-    "options": [
-        "url",
-        "file",
-        "byte"
-    ]
-  },
-  "pil_compress_quality": {
-      "description": "本地PIL压缩画质百分比",
-      "type": "int",
-      "hint": "仅在 image_send_method=file/byte 时生效。范围 1-100；100 表示不按百分比压缩。",
-      "default": 100,
-      "min": 1,
-      "max": 100
-  },
-  "pil_compress_target_kb": {
-      "description": "本地PIL压缩目标文件大小(KB)",
-      "type": "int",
-      "hint": "仅在 image_send_method=file/byte 时生效。>0 时优先按目标大小压缩；0 表示关闭按大小压缩。",
-      "default": 0,
-      "min": 0,
-      "max": 20480
-  },
-  "refresh_token_interval_minutes": {
-      "description": "自动刷新 Refresh Token 的间隔时间（分钟）",
-      "type": "int",
-      "hint": "为防止 Refresh Token 因长期未使用而失效，插件会定期尝试使用它进行认证。单位为分钟，设置为 0 或负数则禁用自动刷新。",
-      "default": 180,
-      "min": 0,
-      "max": 10080
-  },
-  "subscription_enabled": {
-      "description": "是否启用订阅功能",
-      "type": "bool",
-      "hint": "启用后，用户将能够订阅画师和标签，并接收更新推送。",
-      "default": true
-  },
-  "subscription_force_forward": {
-      "description": "订阅消息强制使用合并转发",
-      "type": "bool",
-      "hint": "设置为 true 时，订阅更新始终以合并转发消息发送，用于避免图片直接出现在群聊。",
-      "default": true
-  },
-  "subscription_check_interval_minutes": {
-      "description": "订阅更新检查间隔（分钟）",
-      "type": "int",
-      "hint": "后台任务检查订阅更新的频率。建议不要设置得太频繁，以免给 Pixiv 服务器带来过大压力。",
-      "default": 30,
-      "min": 5,
-      "max": 1440
-  },
-  "proxy": {
-      "description": "代理地址",
-      "type": "string",
-      "hint": "例如 http://127.0.0.1:7890，留空则不使用代理。",
-      "default": ""
-  },
-  "image_proxy_host": {
-      "type": "string",
-      "title": "图片反代服务器",
-      "description": "用于大陆直连的图片反代服务器地址，默认 i.pixiv.re",
-      "default": "i.pixiv.re"
-  },
-  "use_image_proxy": {
-      "type": "bool",
-      "title": "启用图片反代",
-      "description": "无代理时自动使用图片反代服务器下载图片",
-      "default": true
-  },
-  "api_proxy_host": {
-      "type": "string",
-      "title": "Pixiv API 反代服务器",
-      "description": "用于替代 ByPassSniApi 的 API 反代服务器地址。格式：域名（如 example.com），无需 https://。留空则使用 ByPassSniApi 模式。",
-      "hint": "当 ByPassSniApi 失效时可使用自建或公开的 Pixiv API 反代。需支持 app-api.pixiv.net 和 oauth.secure.pixiv.net 的代理。",
-      "default": ""
-  },
-  "random_search_min_interval": {
-      "description": "随机搜索发送间隔最短时间（分钟）",
-      "type": "int",
-      "hint": "随机定时任务的最小间隔时间。单位：分钟。",
-      "default": 60,
-      "min": 1,
-      "max": 1440
-  },
-  "random_search_max_interval": {
-      "description": "随机搜索发送间隔最长时间（分钟）",
-      "type": "int",
-      "hint": "随机定时任务的最大间隔时间。单位：分钟。",
-      "default": 120,
-      "min": 1,
-      "max": 1440
-  },
-  "random_sent_illust_retention_days": {
-      "description": "随机搜索已发送作品保留天数,以避免重复发送",
-      "type": "int",
-      "hint": "已发送作品在数据库中保留的天数。单位：天。",
-      "default": 7,
-      "min": 1,
-      "max": 365
-  }
+    "refresh_token": {
+        "description": "Pixiv Refresh Token",
+        "type": "string",
+        "hint": "用于 API 认证，安全性更高。获取方法请参考 pixiv-api 文档或网络教程。",
+        "default": "",
+        "is_sensitive": true,
+        "required": true
+    },
+    "fanbox_sessid": {
+        "description": "Pixiv Fanbox Session（FANBOXSESSID）",
+        "type": "string",
+        "hint": "用于访问受限 Fanbox 内容。格式通常为 `数字_字母数字`，可在浏览器 Cookie 的 FANBOXSESSID 中获取。",
+        "default": "",
+        "is_sensitive": true,
+        "required": false
+    },
+    "fanbox_cf_clearance": {
+        "description": "Fanbox cf_clearance（可选）",
+        "type": "string",
+        "hint": "仅当官方 API 被 Cloudflare 拦截（403）时填写。浏览器 F12 -> Application -> Cookies -> fanbox.cc 中复制 cf_clearance 的值。",
+        "default": "",
+        "is_sensitive": true,
+        "required": false
+    },
+    "fanbox_user_agent": {
+        "description": "Fanbox 请求 User-Agent（可选）",
+        "type": "string",
+        "hint": "建议填写与你浏览器一致的 UA；与 fanbox_cf_clearance 搭配可提升官方 API 通过率。",
+        "default": ""
+    },
+    "fanbox_data_source": {
+        "description": "Fanbox 数据源模式",
+        "type": "string",
+        "hint": "可选：auto(官方优先失败回退Nekohouse)、official(仅官方API)、nekohouse(仅Nekohouse归档)",
+        "default": "auto",
+        "options": [
+            "auto",
+            "official",
+            "nekohouse"
+        ]
+    },
+    "fanbox_api_proxy_host": {
+        "type": "string",
+        "title": "Fanbox API 反代服务器",
+        "description": "Fanbox 批量下载走自建 Cloudflare Workers 反代。格式：域名（如 example.com），无需 https://。留空直连 api.fanbox.cc。",
+        "hint": "带 Cookie 请求 post.info 被 Cloudflare 拦（403 HTML，多为机房 IP）时使用。与 pixiv-proxy 同模式自建 Worker，upstream 改为 api.fanbox.cc 即可。",
+        "default": ""
+    },
+    "fanbox_dl_impersonate": {
+        "type": "string",
+        "title": "Fanbox 下载 TLS 指纹伪装",
+        "description": "批量下载使用 curl_cffi 模拟指定浏览器指纹（如 edge101、chrome131）。留空走默认 aiohttp。",
+        "hint": "post.info 403 拦截页时的首选方案：填你浏览器同族指纹（Edge 用 edge101，Chrome 用 chrome131），必要时配上 fanbox_cf_clearance 与 fanbox_user_agent。需 pip install curl_cffi。",
+        "default": ""
+    },
+    "fanbox_dl_page_limit": {
+        "type": "int",
+        "title": "Fanbox 列表分页大小",
+        "description": "批量下载列表接口每页条数（上限 300）。",
+        "hint": "非必要不修改。默认 300，调低会增加请求次数。",
+        "default": 300
+    },
+    "fanbox_dl_max_429_retries": {
+        "type": "int",
+        "title": "Fanbox 429 重试次数",
+        "description": "触发限流（429）时的最大指数退避重试次数。",
+        "hint": "非必要不修改。默认 4，退避间隔 45s 起指数翻倍。",
+        "default": 4
+    },
+    "fanbox_dl_max_cf_consecutive": {
+        "type": "int",
+        "title": "Fanbox Cloudflare 连续拦截上限",
+        "description": "连续被 Cloudflare 拦截达到此次数后中止任务。",
+        "hint": "非必要不修改。默认 3。",
+        "default": 3
+    },
+    "fanbox_dl_max_retries": {
+        "type": "int",
+        "title": "Fanbox 文件下载重试次数",
+        "description": "单个文件下载失败的最大重试次数。",
+        "hint": "非必要不修改。默认 5。",
+        "default": 5
+    },
+    "fanbox_dl_concurrency": {
+        "type": "int",
+        "title": "Fanbox 下载并发数",
+        "description": "同一帖子内文件并行下载数。",
+        "hint": "非必要不修改。默认 4，调高易触发限流/风控。",
+        "default": 4
+    },
+    "fanbox_dl_prefetch_queue": {
+        "type": "int",
+        "title": "Fanbox 详情预取队列",
+        "description": "帖子详情预取流水线深度（限流请求与下载并行）。",
+        "hint": "非必要不修改。默认 4。",
+        "default": 4
+    },
+    "fanbox_dl_pack_size_mb": {
+        "type": "int",
+        "title": "Fanbox 打包单卷上限(MB)",
+        "description": "加密打包发送的单卷体积上限，超出自动分卷。",
+        "hint": "非必要不修改。默认 100（平台发送上限），调大可能导致发送失败。",
+        "default": 100
+    },
+    "return_count": {
+        "description": "每次搜索返回的图片数量",
+        "type": "int",
+        "hint": "单次 /pixiv 命令回复的图片张数。有效范围: 1-10，超出范围的值会被自动限制在有效范围内。",
+        "default": 1,
+        "min": 1,
+        "max": 10
+    },
+    "r18_mode": {
+        "description": "R18 内容过滤模式",
+        "type": "string",
+        "hint": "选择如何处理 R18 内容：'过滤 R18' (默认), '允许 R18', '仅 R18'",
+        "default": "过滤 R18",
+        "options": [
+            "过滤 R18",
+            "允许 R18",
+            "仅 R18"
+        ]
+    },
+    "filter_r18g_only": {
+        "description": "额外过滤 R18G",
+        "type": "bool",
+        "hint": "开启后会额外过滤 R18G 内容。在 r18_mode=过滤 R18 时生效。",
+        "default": false
+    },
+    "ai_filter_mode": {
+        "description": "AI 生成作品过滤模式",
+        "type": "string",
+        "hint": "选择如何处理 AI 生成的作品：'显示 AI 作品' (默认), '过滤 AI 作品', '仅 AI 作品'",
+        "default": "显示 AI 作品",
+        "options": [
+            "显示 AI 作品",
+            "过滤 AI 作品",
+            "仅 AI 作品"
+        ]
+    },
+    "ai_detection_mode": {
+        "description": "AI 判定模式",
+        "type": "string",
+        "hint": "field_or_tag=字段或标签任一命中；field_only=仅看 illust_ai_type；tag_only=仅看标签关键词。",
+        "default": "field_or_tag",
+        "options": [
+            "field_or_tag",
+            "field_only",
+            "tag_only"
+        ]
+    },
+    "min_bookmarks": {
+        "description": "最小书签数过滤阈值",
+        "type": "int",
+        "hint": "过滤掉书签数小于该值的插画。设置为 0 表示关闭该过滤。",
+        "default": 0,
+        "min": 0,
+        "max": 100000000
+    },
+    "min_views": {
+        "description": "最小阅读量过滤阈值",
+        "type": "int",
+        "hint": "过滤掉阅读量小于该值的插画。设置为 0 表示关闭该过滤。",
+        "default": 0,
+        "min": 0,
+        "max": 100000000
+    },
+    "min_likes": {
+        "description": "最小点赞数过滤阈值",
+        "type": "int",
+        "hint": "过滤掉点赞数小于该值的插画。设置为 0 表示关闭该过滤；当 Pixiv 返回中缺少点赞字段时会自动忽略该项。",
+        "default": 0,
+        "min": 0,
+        "max": 100000000
+    },
+    "deep_search_depth": {
+        "description": "深度搜索时搜索页数深度",
+        "type": "int",
+        "hint": "设置为 -1 表示无限制搜索，0 表示仅搜索第一页，其他值表示搜索页数。有效范围: -1 或 1-50。",
+        "default": 3,
+        "min": -1,
+        "max": 50
+    },
+    "show_details": {
+        "description": "是否在发送图片时附带详细信息",
+        "type": "bool",
+        "hint": "设置为 false 时，仅发送图片，不附带文字详情。",
+        "default": true
+    },
+    "forward_threshold": {
+        "description": "是否启用消息转发功能",
+        "type": "bool",
+        "hint": "设置为 true 时启用转发，false 时禁用转发。启用后所有图片都会以转发消息形式发送。",
+        "default": false
+    },
+    "pixiv_urlsearch_enabled": {
+        "description": "是否启用 Pixiv URL 搜索功能",
+        "type": "bool",
+        "hint": "设置为 true 时启用 Pixiv URL 搜索，false 时禁用。",
+        "default": true
+    },
+    "show_filter_result": {
+        "description": "是否显示过滤内容提示",
+        "type": "bool",
+        "hint": "设置为 true 时，过滤内容时会输出提示信息；false 则不输出。",
+        "default": true
+    },
+    "single_response_mode": {
+        "description": "单条合并消息模式",
+        "type": "bool",
+        "hint": "设置为 true 时，搜索完成后仅发送一条合并转发消息（包含汇总与图片），不发送中途进度提示。",
+        "default": true
+    },
+    "image_quality": {
+        "description": "默认发送的图片质量",
+        "type": "string",
+        "hint": "选择默认发送的图片质量：'original' (原图), 'large' (大图), 'medium' (中图)",
+        "default": "medium",
+        "options": [
+            "original",
+            "large",
+            "medium"
+        ]
+    },
+    "image_send_method": {
+        "description": "图片发送方式",
+        "type": "string",
+        "hint": "选择图片发送方式：'url' (直接通过URL发送，不下载，最快), 'file' (下载后通过文件路径发送), 'byte' (下载后通过base64发送)",
+        "default": "url",
+        "options": [
+            "url",
+            "file",
+            "byte"
+        ]
+    },
+    "pil_compress_quality": {
+        "description": "本地PIL压缩画质百分比",
+        "type": "int",
+        "hint": "仅在 image_send_method=file/byte 时生效。范围 1-100；100 表示不按百分比压缩。",
+        "default": 100,
+        "min": 1,
+        "max": 100
+    },
+    "pil_compress_target_kb": {
+        "description": "本地PIL压缩目标文件大小(KB)",
+        "type": "int",
+        "hint": "仅在 image_send_method=file/byte 时生效。>0 时优先按目标大小压缩；0 表示关闭按大小压缩。",
+        "default": 0,
+        "min": 0,
+        "max": 20480
+    },
+    "refresh_token_interval_minutes": {
+        "description": "自动刷新 Refresh Token 的间隔时间（分钟）",
+        "type": "int",
+        "hint": "为防止 Refresh Token 因长期未使用而失效，插件会定期尝试使用它进行认证。单位为分钟，设置为 0 或负数则禁用自动刷新。",
+        "default": 180,
+        "min": 0,
+        "max": 10080
+    },
+    "subscription_enabled": {
+        "description": "是否启用订阅功能",
+        "type": "bool",
+        "hint": "启用后，用户将能够订阅画师和标签，并接收更新推送。",
+        "default": true
+    },
+    "subscription_force_forward": {
+        "description": "订阅消息强制使用合并转发",
+        "type": "bool",
+        "hint": "设置为 true 时，订阅更新始终以合并转发消息发送，用于避免图片直接出现在群聊。",
+        "default": true
+    },
+    "subscription_check_interval_minutes": {
+        "description": "订阅更新检查间隔（分钟）",
+        "type": "int",
+        "hint": "后台任务检查订阅更新的频率。建议不要设置得太频繁，以免给 Pixiv 服务器带来过大压力。",
+        "default": 30,
+        "min": 5,
+        "max": 1440
+    },
+    "proxy": {
+        "description": "代理地址",
+        "type": "string",
+        "hint": "例如 http://127.0.0.1:7890，留空则不使用代理。",
+        "default": ""
+    },
+    "image_proxy_host": {
+        "type": "string",
+        "title": "图片反代服务器",
+        "description": "用于大陆直连的图片反代服务器地址，默认 i.pixiv.re",
+        "default": "i.pixiv.re"
+    },
+    "use_image_proxy": {
+        "type": "bool",
+        "title": "启用图片反代",
+        "description": "无代理时自动使用图片反代服务器下载图片",
+        "default": true
+    },
+    "api_proxy_host": {
+        "type": "string",
+        "title": "Pixiv API 反代服务器",
+        "description": "用于替代 ByPassSniApi 的 API 反代服务器地址。格式：域名（如 example.com），无需 https://。留空则使用 ByPassSniApi 模式。",
+        "hint": "当 ByPassSniApi 失效时可使用自建或公开的 Pixiv API 反代。需支持 app-api.pixiv.net 和 oauth.secure.pixiv.net 的代理。",
+        "default": ""
+    },
+    "random_search_min_interval": {
+        "description": "随机搜索发送间隔最短时间（分钟）",
+        "type": "int",
+        "hint": "随机定时任务的最小间隔时间。单位：分钟。",
+        "default": 60,
+        "min": 1,
+        "max": 1440
+    },
+    "random_search_max_interval": {
+        "description": "随机搜索发送间隔最长时间（分钟）",
+        "type": "int",
+        "hint": "随机定时任务的最大间隔时间。单位：分钟。",
+        "default": 120,
+        "min": 1,
+        "max": 1440
+    },
+    "random_sent_illust_retention_days": {
+        "description": "随机搜索已发送作品保留天数,以避免重复发送",
+        "type": "int",
+        "hint": "已发送作品在数据库中保留的天数。单位：天。",
+        "default": 7,
+        "min": 1,
+        "max": 365
+    }
 }

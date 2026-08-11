@@ -56,7 +56,7 @@
 - `/pixiv_fanbox_dl <creatorId|链接> [--limit N] [--since YYYY-MM-DD] [--type image|file|all] [--dir 名称] [--force]` - 后台批量下载创作者帖子（全局同时仅一个任务）
 - `/pixiv_fanbox_dl_status` - 查看下载进度（含当前速度与各文件下载进度）
 - `/pixiv_fanbox_dl_stop` - 停止当前下载任务（当前文件下完后终止）
-- `/pixiv_fanbox_dl_view <creatorId|目录名> [postId|--pack]` - 查看已下载内容；`postId` 发送单帖，`--pack` 打包 zip 发送
+- `/pixiv_fanbox_dl_view <creatorId|目录名> [postId|--pack]` - 查看已下载内容；`postId` 发送单帖，`--pack` AES 加密打包 zip 发送（密码随消息给出，超 100MB 自动分卷）
 
 **断点续跑**：下载记录存于 `fanbox/<目录>/downloaded.json`，整帖成功才记录；中断或停止后重新执行同一命令，已完成的帖子与帖子内已存在的文件都会自动跳过，只补下缺失部分。加 `--force` 可忽略记录与已有文件，强制重新下载。
 
@@ -248,6 +248,7 @@
 | `fanbox_data_source` | Fanbox 数据源：`auto`/`official`/`nekohouse` | auto |
 | `fanbox_api_proxy_host` | Fanbox 批量下载 API 反代域名（被 Cloudflare 拦时用） | 留空 |
 | `fanbox_dl_impersonate` | 批量下载 TLS 指纹伪装（如 `edge101`/`chrome131`，被拦时首选） | 留空 |
+| `fanbox_dl_*` | 批量下载策略参数：`page_limit`(300) `max_429_retries`(4) `max_cf_consecutive`(3) `max_retries`(5) `concurrency`(4) `prefetch_queue`(4) `pack_size_mb`(100)，非必要不修改 | 括号内为默认值 |
 | `return_count` | 每次搜索返回的图片数量 (1-10) | 1 |
 | `r18_mode` | R18内容处理模式 | 过滤 R18 |
 | `filter_r18g_only` | 是否额外过滤 R18G | false |

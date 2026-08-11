@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import json
 import re
-import shutil
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -15,11 +14,11 @@ from astrbot.api import logger
 
 from .client import FanboxAPIClient
 from .models import FanboxFile, FanboxImage, FanboxPost
+from .packer import pack_creator_encrypted
 from .rate_limit import CookieInvalidError
 
 DOWNLOAD_CONCURRENCY = 4  # 文件下载并发
 DETAIL_PREFETCH_QUEUE = 4  # 帖子详情预取队列深度
-MAX_PACK_SIZE_BYTES = 100 * 1024 * 1024  # 打包发送上限 100MB
 SPEED_WINDOW_SECONDS = 10.0  # 当前速度采样窗口
 DIR_NAME_RE = re.compile(r"^[\w一-鿿-]{1,64}$", re.UNICODE)
 _UNSAFE_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
@@ -139,13 +138,22 @@ class DownloadProgress:
 class FanboxDownloadManager:
     """下载任务管理器：全局同时仅一个任务，协作式停止。"""
 
-    def __init__(self, data_dir: Path):
+    def __init__(
+        self,
+        data_dir: Path,
+        concurrency: int = DOWNLOAD_CONCURRENCY,
+        prefetch_queue: int = DETAIL_PREFETCH_QUEUE,
+        speed_window: float = SPEED_WINDOW_SECONDS,
+    ):
         self.root_dir = data_dir / "fanbox"
         self.progress = DownloadProgress()
         self._task: asyncio.Task | None = None
         self._cancel_event: asyncio.Event | None = None
         self._speed_window: deque[tuple[float, int]] = deque()
-
+        # 策略参数由 config 层注入（默认即上方常量，非必要不修改）
+        self._concurrency = concurrency
+        self._prefetch_queue = prefetch_queue
+        self._speed_window_seconds = speed_window
     @property
     def running(self) -> bool:
         return self._task is not None and not self._task.done()
@@ -212,7 +220,7 @@ class FanboxDownloadManager:
         posts_root = creator_dir / "posts"
         posts_root.mkdir(parents=True, exist_ok=True)
         store = DownloadedStore(creator_dir)
-        semaphore = asyncio.Semaphore(DOWNLOAD_CONCURRENCY)
+        semaphore = asyncio.Semaphore(self._concurrency)
 
         try:
             # 先收集符合条件的帖子摘要（分页拉取阶段也受限流保护）
@@ -235,7 +243,7 @@ class FanboxDownloadManager:
             )
 
             consecutive_auth_errors = 0  # 连续 403 计数，区分单帖无权限与 Cookie 整体失效
-            detail_queue: asyncio.Queue = asyncio.Queue(maxsize=DETAIL_PREFETCH_QUEUE)
+            detail_queue: asyncio.Queue = asyncio.Queue(maxsize=self._prefetch_queue)
             prefetch_task = asyncio.create_task(
                 self._prefetch_details(client, targets, detail_queue)
             )
@@ -400,7 +408,7 @@ class FanboxDownloadManager:
             return
         now = time.monotonic()
         self._speed_window.append((now, delta))
-        cutoff = now - SPEED_WINDOW_SECONDS
+        cutoff = now - self._speed_window_seconds
         while self._speed_window and self._speed_window[0][0] < cutoff:
             self._speed_window.popleft()
         span = now - self._speed_window[0][0] if self._speed_window else 0.0
@@ -489,12 +497,11 @@ class FanboxDownloadManager:
                 return post_dir
         return None
 
-    def pack_creator(self, dir_name: str, temp_dir: Path) -> Path:
-        """压缩 creator 整个目录为 zip，存到 temp_dir。"""
-        creator_dir = self.creator_dir(dir_name)
-        if not creator_dir.is_dir():
-            raise FileNotFoundError(f"目录不存在: {creator_dir}")
-        temp_dir.mkdir(parents=True, exist_ok=True)
-        base = temp_dir / f"fanbox_{dir_name}_{int(time.time())}"
-        zip_path = Path(shutil.make_archive(str(base), "zip", root_dir=creator_dir))
-        return zip_path
+    def pack_creator(
+        self, dir_name: str, temp_dir: Path, part_limit: int | None = None
+    ) -> tuple[list[Path], str]:
+        """AES 加密打包 creator 目录（分卷逻辑见 fanbox/packer.py）。"""
+        kwargs = {"part_limit": part_limit} if part_limit else {}
+        return pack_creator_encrypted(
+            self.creator_dir(dir_name), temp_dir, dir_name, **kwargs
+        )

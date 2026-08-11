@@ -8,6 +8,7 @@ from typing import Any, AsyncIterator, Callable
 import aiohttp
 from astrbot.api import logger
 
+from .headers import build_api_headers
 from .models import (
     FanboxPost,
     parse_page_urls,
@@ -50,6 +51,10 @@ class FanboxAPIClient:
         cancel_event: asyncio.Event | None = None,
         api_host: str = "",
         impersonate: str = "",
+        page_limit: int = LIST_PAGE_LIMIT,
+        max_429_retries: int = MAX_429_RETRIES,
+        max_cf_consecutive: int = MAX_CF_CONSECUTIVE,
+        max_download_retries: int = MAX_DOWNLOAD_RETRIES,
     ):
         self._cookie_getter = cookie_getter
         self._ua_getter = ua_getter
@@ -63,6 +68,11 @@ class FanboxAPIClient:
         self._cffi_session = None
         self._aiohttp_session: aiohttp.ClientSession | None = None
         self._cf_consecutive = 0
+        # 策略参数由 config 层注入（默认即上方常量，非必要不修改）
+        self._page_limit = page_limit
+        self._max_429_retries = max_429_retries
+        self._max_cf_consecutive = max_cf_consecutive
+        self._max_download_retries = max_download_retries
 
     async def close(self):
         """关闭复用的 HTTP 会话，任务结束时调用。"""
@@ -88,20 +98,7 @@ class FanboxAPIClient:
             raise asyncio.CancelledError()
 
     def _build_headers(self, referer: str) -> dict[str, str]:
-        headers = {
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8,zh-CN;q=0.7",
-            "Origin": "https://www.fanbox.cc",
-            "Referer": referer,
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-site",
-            "User-Agent": self._ua_getter(),
-        }
-        cookie = self._cookie_getter()
-        if cookie:
-            headers["Cookie"] = cookie
-        return headers
+        return build_api_headers(self._ua_getter(), referer, self._cookie_getter())
 
     def _get_cffi_session(self):
         """curl_cffi 会话懒加载（指纹伪装后端）。"""
@@ -136,7 +133,7 @@ class FanboxAPIClient:
     async def _get_json(self, url: str, referer: str) -> Any:
         """带限流与 429/Cloudflare 重试的 JSON GET。"""
         last_error: Exception | None = None
-        for attempt in range(MAX_429_RETRIES + 1):
+        for attempt in range(self._max_429_retries + 1):
             self._check_cancelled()
             await self._rate_limiter.acquire()
             try:
@@ -171,7 +168,7 @@ class FanboxAPIClient:
                 return payload
             except CloudflareBlockError as exc:
                 self._cf_consecutive += 1
-                if self._cf_consecutive >= MAX_CF_CONSECUTIVE:
+                if self._cf_consecutive >= self._max_cf_consecutive:
                     raise
                 last_error = exc
                 logger.warning(
@@ -183,7 +180,7 @@ class FanboxAPIClient:
             except _NETWORK_ERRORS as exc:
                 # 网络层失败常见于 Cloudflare 拦截（Failed to fetch / 连接重置）
                 self._cf_consecutive += 1
-                if self._cf_consecutive >= MAX_CF_CONSECUTIVE:
+                if self._cf_consecutive >= self._max_cf_consecutive:
                     raise CloudflareBlockError(
                         f"连续 {self._cf_consecutive} 次网络失败，疑似 Cloudflare 拦截: {exc}"
                     ) from exc
@@ -197,7 +194,7 @@ class FanboxAPIClient:
     async def iter_creator_posts(self, creator_id: str) -> AsyncIterator[FanboxPost]:
         """遍历创作者全部帖子摘要：优先 limit=300 + nextPage，旧格式回退 paginateCreator。"""
         referer = f"https://{creator_id}.fanbox.cc/"
-        url = f"{self._api_base}/post.listCreator?creatorId={creator_id}&limit={LIST_PAGE_LIMIT}"
+        url = f"{self._api_base}/post.listCreator?creatorId={creator_id}&limit={self._page_limit}"
         seen: set[str] = set()
 
         payload = await self._get_json(url, referer)
@@ -260,7 +257,7 @@ class FanboxAPIClient:
         last_error: Exception | None = None
         current_url = url
 
-        for _ in range(MAX_DOWNLOAD_RETRIES):
+        for _ in range(self._max_download_retries):
             self._check_cancelled()
             try:
                 status, body_text = await self._raw_download(
@@ -291,7 +288,7 @@ class FanboxAPIClient:
                 wait = min(wait * 2, 30.0)
 
         self._remove_partial(dest)
-        raise RuntimeError(f"下载失败（重试 {MAX_DOWNLOAD_RETRIES} 次）: {last_error}")
+        raise RuntimeError(f"下载失败（重试 {self._max_download_retries} 次）: {last_error}")
 
     async def _raw_download(
         self,
