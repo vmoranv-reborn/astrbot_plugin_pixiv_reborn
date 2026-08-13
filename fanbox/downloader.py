@@ -6,6 +6,7 @@ import json
 import re
 import time
 from collections import deque
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -14,7 +15,7 @@ from astrbot.api import logger
 
 from .client import FanboxAPIClient
 from .models import FanboxFile, FanboxImage, FanboxPost
-from .packer import pack_creator_encrypted
+from .packer import iter_encrypted_pack_parts
 from .rate_limit import CookieInvalidError
 
 DOWNLOAD_CONCURRENCY = 4  # 文件下载并发
@@ -497,11 +498,18 @@ class FanboxDownloadManager:
                 return post_dir
         return None
 
+    def creator_size_bytes(self, dir_name: str) -> int:
+        """统计 creator 目录总字节数（用于发送上限预估）。"""
+        creator_dir = self.creator_dir(dir_name)
+        if not creator_dir.is_dir():
+            raise FileNotFoundError(f"目录不存在: {creator_dir}")
+        return sum(f.stat().st_size for f in creator_dir.rglob("*") if f.is_file())
+
     def pack_creator(
         self, dir_name: str, temp_dir: Path, part_limit: int | None = None
-    ) -> tuple[list[Path], str]:
-        """AES 加密打包 creator 目录（分卷逻辑见 fanbox/packer.py）。"""
+    ) -> Iterator[tuple[Path, str, int, int]]:
+        """AES 加密打包 creator 目录，逐卷产出（分卷逻辑见 fanbox/packer.py）。"""
         kwargs = {"part_limit": part_limit} if part_limit else {}
-        return pack_creator_encrypted(
+        return iter_encrypted_pack_parts(
             self.creator_dir(dir_name), temp_dir, dir_name, **kwargs
         )

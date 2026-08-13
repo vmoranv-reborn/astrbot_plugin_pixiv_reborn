@@ -103,6 +103,13 @@
         "hint": "非必要不修改。默认 100（平台发送上限），调大可能导致发送失败。",
         "default": 100
     },
+    "fanbox_dl_send_limit_mb": {
+        "type": "int",
+        "title": "Fanbox 打包发送上限(MB)",
+        "description": "--pack 打包发送的总大小上限，源目录超过该值直接取消打包，防止误操作。填 0 不拦截。",
+        "hint": "非必要不修改。默认 1024（1GB）。大文件建议直接从返回的目录路径自取。",
+        "default": 1024
+    },
     "return_count": {
         "description": "每次搜索返回的图片数量",
         "type": "int",
