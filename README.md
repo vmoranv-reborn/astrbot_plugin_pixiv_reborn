@@ -21,82 +21,53 @@
 
 ## 🎯 主要功能
 
-### 搜索功能
-- `/pixiv <标签>` - 标签搜索插画
-- `/pixiv_deepsearch <标签>` - 深度搜索更多相关作品
-- `/pixiv_and <标签>` - 与搜索(同时包含所有标签)
-- `/pixiv_user_search <用户名>` - 搜索用户
-- `/pixiv_novel <标签>` - 搜索小说
-- `/pixiv_novel download <小说ID>` - 下载小说为 pdf 文件并用文件md5值进行加密
+所有功能统一收纳在 `/pixiv` 指令组。直接输入 `/pixiv` 可查看 AstrBot 自动生成的指令树。
 
-### 随机搜索功能
-- `/pixiv_random_add <标签>` - 添加随机搜索标签
-- `/pixiv_random_list` - 列出当前随机搜索标签
-- `/pixiv_random_del <序号>` - 删除指定序号的随机搜索标签
-- `/pixiv_random_suspend` - 暂停当前群聊的随机搜索
-- `/pixiv_random_resume` - 恢复当前群聊的随机搜索
-- `/pixiv_random_status` - 查看随机搜索队列状态
-- `/pixiv_random_force` - 强制执行当前群聊的随机搜索（调试用）
+### 搜索与设置
 
-### 随机排行榜功能
-- `/pixiv_random_ranking_add <模式> [日期]` - 添加随机排行榜配置
-- `/pixiv_random_ranking_del <序号>` - 删除指定序号的随机排行榜配置
-- `/pixiv_random_ranking_list` - 查看当前群聊的随机排行榜配置列表
+- `/pixiv search <标签>` - 标签搜索插画
+- `/pixiv deep <标签>` - 深度搜索更多相关作品
+- `/pixiv and <标签>` - 搜索同时包含所有标签的作品
+- `/pixiv hot <标签> [时间范围] [页数]` - 按收藏数排序搜索
+- `/pixiv ai <设置>` - 设置是否展示 AI 生成作品
+- `/pixiv config [show|help|参数名] [值]` - 查看或修改配置
+- `/pixiv help` - 显示完整帮助
 
-### 热度搜索
-- `/pixiv_hot <标签> [时间范围] [页数]` - 按收藏数排序搜索（时间范围: day/week/month/all）
+### 功能分组
 
-### Fanbox 功能
-- `/pixiv_fanbox_creator <creatorId|pixiv用户ID|链接> [数量]` - 查看创作者和最近帖子
-- `/pixiv_fanbox_post <postId|帖子链接>` - 查看帖子详情、图片和附件链接
-- `/pixiv_fanbox_recommended [数量]` - 获取推荐创作者
-- `/pixiv_fanbox_artist <关键词> [数量]` - 按 Nekohouse artists 搜索 Fanbox 创作者
+- `/pixiv illust get|new|recommended|ranking|related|comments|showcase|trending`
+- `/pixiv user search|detail|works`
+- `/pixiv novel search|new|recommended|series|comments|download`
+- `/pixiv subscribe add|remove|list`
+- `/pixiv random add|del|list|suspend|resume|status|force`
+- `/pixiv random ranking-add|ranking-del|ranking-list`
+- `/pixiv fanbox creator|post|recommended|artist|download|status|stop|view`
 
-### Fanbox 批量下载
-- `/pixiv_fanbox_dl <creatorId|链接> [--limit N] [--since YYYY-MM-DD] [--type image|file|all] [--dir 名称] [--force]` - 后台批量下载创作者帖子（全局同时仅一个任务）
-- `/pixiv_fanbox_dl_status` - 查看下载进度（含当前速度与各文件下载进度）
-- `/pixiv_fanbox_dl_stop` - 停止当前下载任务（当前文件下完后终止）
-- `/pixiv_fanbox_dl_view <creatorId|目录名> [postId|--pack]` - 查看已下载内容；`postId` 发送单帖，`--pack` AES 加密打包 zip 发送（密码随消息给出，超 100MB 自动分卷）
-
-**断点续跑**：下载记录存于 `fanbox/<目录>/downloaded.json`，整帖成功才记录；中断或停止后重新执行同一命令，已完成的帖子与帖子内已存在的文件都会自动跳过，只补下缺失部分。加 `--force` 可忽略记录与已有文件，强制重新下载。
-
-### 配置管理
-- `/pixiv_config show` - 显示当前配置
-- `/pixiv_config <参数名>` - 查看指定参数值
-- `/pixiv_config <参数名> <值>` - 设置参数值
-- `/pixiv_config help` - 显示配置帮助
+Fanbox 批量下载支持断点续跑、日期与类型过滤、强制重下、进度查询、停止任务、单帖发送和加密分卷打包。完整参数可通过 `/pixiv help` 查看。
 
 ### 排除 tag
 - `-<tag>` - 排除包含 `<tag>` 的插画（支持多个负面标签）
-- 示例：`/pixiv 露露卡,光之美少女,-ntr,-futa`
-- 同样支持随机搜索标签配置：`/pixiv_random_add 露露卡,光之美少女,-ntr,-futa`
+- 示例：`/pixiv search 露露卡,光之美少女,-ntr,-futa`
+- 同样支持随机搜索标签配置：`/pixiv random add 露露卡,光之美少女,-ntr,-futa`
 
-### 内容获取
-- `/pixiv_recommended` - 获取推荐作品
-- `/pixiv_ranking [模式] [日期]` - 排行榜作品
-- `/pixiv_trending_tags` - 获取趋势标签
-- `/pixiv_illust_new [类型] [最大作品ID]` - 获取大家的新插画作品
-- `/pixiv_novel_new [最大小说ID]` - 获取大家的新小说
-- `/pixiv_novel_recommended` - 获取推荐小说
+### 从旧版指令迁移
 
-### 详情查询
-- `/pixiv_specific <作品ID>` - 指定作品详情（支持动图）
-- `/pixiv_user_detail <用户ID>` - 用户详细信息
-- `/pixiv_related <作品ID>` - 相关作品推荐
-- `/pixiv_novel_series <系列ID>` - 小说系列详情
-- `/pixiv_showcase_article <特辑ID>` - 特辑详情
+本版本将原有 41 个顶层指令合并为一个 `/pixiv` 指令组。常用映射如下：
 
-### 评论功能
-- `/pixiv_illust_comments <作品ID> [偏移量]` - 获取作品评论
-- `/pixiv_novel_comments <小说ID> [偏移量]` - 获取小说评论
+| 旧指令 | 新指令 |
+|---|---|
+| `/pixiv <标签>` | `/pixiv search <标签>` |
+| `/pixiv_deepsearch`、`/pixiv_and`、`/pixiv_hot` | `/pixiv deep`、`/pixiv and`、`/pixiv hot` |
+| `/pixiv_specific`、`/pixiv_recommended`、`/pixiv_ranking` | `/pixiv illust get`、`/pixiv illust recommended`、`/pixiv illust ranking` |
+| `/pixiv_user_*` | `/pixiv user *`（`illusts` 改名为 `works`） |
+| `/pixiv_novel_*` | `/pixiv novel *` |
+| `/pixiv_subscribe_*` | `/pixiv subscribe *` |
+| `/pixiv_random_*` | `/pixiv random *` |
+| `/pixiv_random_ranking_*` | `/pixiv random ranking-*` |
+| `/pixiv_fanbox_*` | `/pixiv fanbox *` |
+| `/pixiv_config`、`/pixiv_ai_show_settings`、`/pixiv_help` | `/pixiv config`、`/pixiv ai`、`/pixiv help` |
 
-### 特殊功能
-- `/pixiv_ai_show_settings <设置>` - 设置是否展示AI生成作品
-
-### 订阅功能
-- `/pixiv_subscribe_add <画师ID>` - 订阅画师
-- `/pixiv_subscribe_remove <画师ID>` - 取消订阅画师
-- `/pixiv_subscribe_list` - 查看当前订阅列表
+Discord 原生指令组需要包含 [AstrBot PR #9445](https://github.com/AstrBotDevs/AstrBot/pull/9445) 的版本；在该核心支持合并前，本插件 PR 保持草稿状态。
 
 ## 🚀 快速开始
 
@@ -154,87 +125,87 @@
 
 ```bash
 # 基础搜索
-/pixiv 初音ミク,VOCALOID
-/pixiv 茉莉安,-ntr
+/pixiv search 初音ミク,VOCALOID
+/pixiv search 茉莉安,-ntr
 
 # 下载小说
-/pixiv_novel download 12345678
+/pixiv novel download 12345678
 
 # 高级搜索  
-/pixiv_deepsearch 原神,风景
-/pixiv_and 初音ミク,可爱
+/pixiv deep 原神,风景
+/pixiv and 初音ミク,可爱
 
 # 获取推荐和排行榜
-/pixiv_recommended
-/pixiv_ranking daily
+/pixiv illust recommended
+/pixiv illust ranking daily
 
 # 获取最新作品
-/pixiv_illust_new
-/pixiv_novel_new
+/pixiv illust new
+/pixiv novel new
 
 # 小说相关
-/pixiv_novel_recommended
-/pixiv_novel_series 123456
+/pixiv novel recommended
+/pixiv novel series 123456
 
 # 评论功能
-/pixiv_illust_comments 12345678
-/pixiv_novel_comments 12345678
+/pixiv illust comments 12345678
+/pixiv novel comments 12345678
 
 # 特殊功能
-/pixiv_ai_show_settings true
+/pixiv ai true
 
 # 用户相关
-/pixiv_user_search 某个画师名
-/pixiv_user_detail 123456
+/pixiv user search 某个画师名
+/pixiv user detail 123456
 
 # 特辑功能
-/pixiv_showcase_article 123456
+/pixiv illust showcase 123456
 
 # 获取帮助
-/pixiv_help
+/pixiv help
 
 # 订阅功能
-/pixiv_subscribe_add 123456
-/pixiv_subscribe_remove 123456
-/pixiv_subscribe_list
+/pixiv subscribe add 123456
+/pixiv subscribe remove 123456
+/pixiv subscribe list
 
 # 随机搜索功能
-/pixiv_random_add 风景
-/pixiv_random_list
-/pixiv_random_del 1
-/pixiv_random_suspend
-/pixiv_random_resume
-/pixiv_random_status
-/pixiv_random_force
+/pixiv random add 风景
+/pixiv random list
+/pixiv random del 1
+/pixiv random suspend
+/pixiv random resume
+/pixiv random status
+/pixiv random force
 
 # 随机排行榜功能
-/pixiv_random_ranking_add day
-/pixiv_random_ranking_add week 2023-05-01
-/pixiv_random_ranking_del 1
-/pixiv_random_ranking_list
+/pixiv random ranking-add day
+/pixiv random ranking-add week 2023-05-01
+/pixiv random ranking-del 1
+/pixiv random ranking-list
 
 # 热度搜索
-/pixiv_hot 可莉 week 5
+/pixiv hot 可莉 week 5
 
 # Fanbox 功能
-/pixiv_fanbox_creator harusono 5
-/pixiv_fanbox_post 10451793
-/pixiv_fanbox_recommended 8
-/pixiv_fanbox_artist hannari 10
+/pixiv fanbox creator harusono 5
+/pixiv fanbox post 10451793
+/pixiv fanbox recommended 8
+/pixiv fanbox artist hannari 10
 
 # Fanbox 批量下载
-/pixiv_fanbox_dl harusono --limit 50 --type image
-/pixiv_fanbox_dl harusono --since 2026-01-01 --dir harusono_2026
-/pixiv_fanbox_dl_status
-/pixiv_fanbox_dl_stop
-/pixiv_fanbox_dl_view harusono --pack
+/pixiv fanbox download harusono --limit 50 --type image
+/pixiv fanbox download harusono --since 2026-01-01 --dir harusono_2026
+/pixiv fanbox status
+/pixiv fanbox stop
+/pixiv fanbox view harusono --pack
 
 # 配置管理
-/pixiv_config show
-/pixiv_config r18_mode 仅 R18
-/pixiv_config min_bookmarks 500
-/pixiv_config min_views 5000
-/pixiv_config random_search_min_interval 30
+/pixiv config show
+/pixiv config r18_mode 仅_R18
+/pixiv config min_bookmarks 500
+/pixiv config min_views 5000
+/pixiv config random_search_min_interval 30
 ```
 
 ## ⚙️ 配置选项
@@ -287,9 +258,9 @@
 
 **无代理直连失败**: 若在中国大陆无法使用代理且 ByPassSniApi 模式失效，可自建 Cloudflare Workers 反向代理。详见 [vmoranv/pixiv-proxy](https://github.com/vmoranv/pixiv-proxy) 仓库，部署后在插件配置中设置 `api_proxy_host` 为你的 Worker 域名。
 
-**Fanbox 帖子获取失败**: 可能触发 Cloudflare 或帖子受限。可先用 `/pixiv_fanbox_creator` 查看公开帖子，必要时配置 `fanbox_sessid`；若官方仍 403，再配置 `fanbox_cf_clearance` 和 `fanbox_user_agent`（与浏览器一致）；也可切换 `fanbox_data_source=nekohouse` 仅走归档数据。
+**Fanbox 帖子获取失败**: 可能触发 Cloudflare 或帖子受限。可先用 `/pixiv fanbox creator` 查看公开帖子，必要时配置 `fanbox_sessid`；若官方仍 403，建议同时配置 `fanbox_cookie`（完整 Cookie，含 `cf_clearance`）和 `fanbox_user_agent`（与浏览器一致）；也可切换 `fanbox_data_source=nekohouse` 仅走归档数据。
 
-**Fanbox 批量下载 403（HTML 拦截页）**: 带 Cookie 请求 `post.info` 被 Cloudflare 拦（列表接口不受影响）。实测有效解法：`fanbox_dl_impersonate` 填**与你浏览器同族**的指纹（Edge 填 `edge101`，Chrome 填 `chrome131`）+ `fanbox_user_agent`（与浏览器一致），必要时再配 `fanbox_cf_clearance`——cf_clearance 绑定签发时的浏览器指纹族，指纹不匹配同样会被拦。备选：自建 CF Workers 反代（与 pixiv-proxy 同模式，upstream 改为 `api.fanbox.cc`）后在 `fanbox_api_proxy_host` 填 Worker 域名。
+**Fanbox 批量下载 403（HTML 拦截页）**: 带 Cookie 请求 `post.info` 被 Cloudflare 拦（列表接口不受影响）。可将 `fanbox_dl_impersonate` 设置为与浏览器同族的指纹（Edge 如 `edge101`，Chrome 如 `chrome131`），并保持 `fanbox_user_agent`、Cookie 与浏览器一致。也可以自建以 `api.fanbox.cc` 为上游的 CF Workers 反代，再填写 `fanbox_api_proxy_host`。
 
 **Fanbox 配置缺省提示**: 当 `fanbox_sessid` 未配置且访问受限内容时，会自动返回 `data/helpmsg.json` 的 `pixiv_fanbox_sessid_missing` 提示。
 
