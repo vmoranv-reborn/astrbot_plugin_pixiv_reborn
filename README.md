@@ -248,7 +248,7 @@
 | `fanbox_data_source` | Fanbox 数据源：`auto`/`official`/`nekohouse` | auto |
 | `fanbox_api_proxy_host` | Fanbox 批量下载 API 反代域名（被 Cloudflare 拦时用） | 留空 |
 | `fanbox_dl_impersonate` | 批量下载 TLS 指纹伪装（如 `edge101`/`chrome131`，被拦时首选） | 留空 |
-| `fanbox_dl_*` | 批量下载策略参数：`page_limit`(300) `max_429_retries`(4) `max_cf_consecutive`(3) `max_retries`(5) `concurrency`(4) `prefetch_queue`(4) `pack_size_mb`(100)，非必要不修改 | 括号内为默认值 |
+| `fanbox_dl_*` | 批量下载策略参数：`page_limit`(300) `max_429_retries`(4) `max_cf_consecutive`(3) `max_retries`(5) `concurrency`(4) `prefetch_queue`(4) `pack_size_mb`(100) `send_limit_mb`(1024，--pack 总大小发送上限，0 不拦截)，非必要不修改 | 括号内为默认值 |
 | `return_count` | 每次搜索返回的图片数量 (1-10) | 1 |
 | `r18_mode` | R18内容处理模式 | 过滤 R18 |
 | `filter_r18g_only` | 是否额外过滤 R18G | false |
