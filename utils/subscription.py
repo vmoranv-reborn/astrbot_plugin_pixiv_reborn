@@ -42,7 +42,8 @@ class SubscriptionService:
     async def check_subscriptions(self):
         """检查所有订阅并推送更新，按 (sub_type, target_id) 聚合，避免同一画师重复拉取 API。"""
         if not await self.client_wrapper.authenticate():
-            logger.error("订阅检查失败：Pixiv API 认证失败。")
+            # 认证层已经输出限频且脱敏的诊断日志，避免每轮订阅重复报错。
+            logger.debug("订阅检查跳过：Pixiv API 当前未认证。")
             return
 
         subscriptions = get_all_subscriptions()
@@ -60,13 +61,9 @@ class SubscriptionService:
         for (sub_type, target_id), subs in artists:
             try:
                 if sub_type == "artist":
-                    await self.check_artist_updates_aggregated(
-                        int(target_id), subs
-                    )
+                    await self.check_artist_updates_aggregated(int(target_id), subs)
             except Exception as e:
-                logger.error(
-                    f"检查订阅 {sub_type}: {target_id} 时发生错误: {e}"
-                )
+                logger.error(f"检查订阅 {sub_type}: {target_id} 时发生错误: {e}")
             # 画师之间保留短暂间隔，避免 API 频率限制
             await asyncio.sleep(3)
 
@@ -118,9 +115,7 @@ class SubscriptionService:
         )
 
         for illust in new_illusts:
-            filtered_illusts, _ = filter_items(
-                [illust], f"画师订阅: {sub.target_name}"
-            )
+            filtered_illusts, _ = filter_items([illust], f"画师订阅: {sub.target_name}")
             if filtered_illusts:
                 await self.send_update(sub, filtered_illusts[0])
                 # 同一群内多张作品之间短暂间隔
