@@ -290,6 +290,12 @@ class FanboxAPIClient:
         self._remove_partial(dest)
         raise RuntimeError(f"下载失败（重试 {self._max_download_retries} 次）: {last_error}")
 
+    @staticmethod
+    def _validate_dest(dest: Path) -> None:
+        """落盘前校验下载目标不含上跳组件，阻断数据夹带的路径穿越。"""
+        if ".." in dest.parts:
+            raise ValueError(f"非法下载路径: {dest}")
+
     async def _raw_download(
         self,
         url: str,
@@ -298,6 +304,7 @@ class FanboxAPIClient:
         on_progress: Callable[[int, int], None] | None = None,
     ):
         """流式 GET：200 时写盘，返回 (status, 非200时的响应文本)。"""
+        self._validate_dest(dest)
         proxy = self._proxy_getter()
         if self._impersonate:
             session = self._get_cffi_session()
@@ -307,7 +314,7 @@ class FanboxAPIClient:
                     return resp.status_code, resp.text
                 total = int(resp.headers.get("Content-Length") or 0)
                 downloaded = 0
-                with open(dest, "wb") as fp:
+                with dest.open("wb") as fp:
                     async for chunk in resp.aiter_content(64 * 1024):
                         self._check_cancelled()
                         fp.write(chunk)
@@ -325,7 +332,7 @@ class FanboxAPIClient:
                 return resp.status, await resp.text()
             total = int(resp.headers.get("Content-Length") or 0)
             downloaded = 0
-            with open(dest, "wb") as fp:
+            with dest.open("wb") as fp:
                 async for chunk in resp.content.iter_chunked(64 * 1024):
                     self._check_cancelled()
                     fp.write(chunk)

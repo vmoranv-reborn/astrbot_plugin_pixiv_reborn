@@ -1,7 +1,21 @@
 """Fanbox 帖子/文件数据结构与响应解析（兼容 fanbox-dl PR#104 新旧两种 body 格式）。"""
 
+import re
 from dataclasses import dataclass
 from typing import Any
+
+# id/extension 会进入落盘路径（如 post_dir / f"{index}.{ext}"），
+# 在解析入口剔除路径敏感字符，防止 API 数据夹带路径穿越
+_PATH_UNSAFE_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+_ID_UNSAFE_CHARS = re.compile(r"[^A-Za-z0-9_-]")
+
+
+def _clean_id(raw: Any) -> str:
+    return _ID_UNSAFE_CHARS.sub("", str(raw))
+
+
+def _clean_extension(raw: Any) -> str:
+    return _PATH_UNSAFE_CHARS.sub("", str(raw or "")).lstrip(".")
 
 
 @dataclass
@@ -101,8 +115,8 @@ def _parse_image(data: Any) -> FanboxImage | None:
     if not isinstance(url, str) or not url:
         return None
     return FanboxImage(
-        id=str(data.get("id", "")),
-        extension=str(data.get("extension", "") or "").lstrip("."),
+        id=_clean_id(data.get("id", "")),
+        extension=_clean_extension(data.get("extension", "")),
         original_url=url,
         thumbnail_url=str(data.get("thumbnailUrl", "") or ""),
     )
@@ -115,9 +129,9 @@ def _parse_file(data: Any) -> FanboxFile | None:
     if not isinstance(url, str) or not url:
         return None
     return FanboxFile(
-        id=str(data.get("id", "")),
+        id=_clean_id(data.get("id", "")),
         name=str(data.get("name", "") or ""),
-        extension=str(data.get("extension", "") or "").lstrip("."),
+        extension=_clean_extension(data.get("extension", "")),
         url=url,
     )
 
@@ -130,7 +144,7 @@ def parse_post_summary(data: Any) -> FanboxPost | None:
     if post_id is None:
         return None
     return FanboxPost(
-        id=str(post_id),
+        id=_clean_id(post_id),
         title=str(data.get("title", "") or ""),
         creator_id=str(data.get("creatorId", "") or ""),
         published_datetime=str(data.get("publishedDatetime", "") or ""),
