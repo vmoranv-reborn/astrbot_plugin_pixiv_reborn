@@ -25,7 +25,6 @@ from ..fanbox.headers import build_api_headers, build_html_headers
 from ..fanbox.packer import cleanup_stale_packs
 from ..fanbox.downloader import (
     FanboxDownloadManager,
-    sanitize_filename,
     validate_dir_name,
 )
 
@@ -1800,7 +1799,10 @@ class FanboxHandler:
             getattr(self.pixiv_config, "fanbox_dl_send_limit_mb", 1024) * 1024 * 1024
         )  # 0 表示不拦截
         try:
-            total_bytes = self.dl_manager.creator_size_bytes(dir_name)
+            # rglob+stat 在大目录上不轻，放线程池避免阻塞事件循环
+            total_bytes = await asyncio.to_thread(
+                self.dl_manager.creator_size_bytes, dir_name
+            )
         except FileNotFoundError as e:
             yield event.plain_result(str(e))
             return
@@ -1817,13 +1819,11 @@ class FanboxHandler:
             return
 
         pack_limit = getattr(self.pixiv_config, "fanbox_dl_pack_size_mb", 100) * 1024 * 1024
-        try:
-            parts_iter = self.dl_manager.pack_creator(
-                dir_name, temp_dir, part_limit=pack_limit
-            )
-        except FileNotFoundError as e:
-            yield event.plain_result(str(e))
-            return
+        # packer 为惰性生成器，目录不存在/为空的异常要到首次 next() 才抛出，
+        # 由下方逐卷循环捕获
+        parts_iter = self.dl_manager.pack_creator(
+            dir_name, temp_dir, part_limit=pack_limit
+        )
 
         logger.info(f"Pixiv 插件：Fanbox 打包任务开始 {dir_name}")
         yield event.plain_result(
@@ -1837,6 +1837,10 @@ class FanboxHandler:
             try:
                 # 压缩是 CPU 密集操作，放工作线程逐卷驱动，不冻结事件循环
                 item = await asyncio.to_thread(next, parts_iter, _EXHAUSTED)
+            except FileNotFoundError as e:
+                # 目录不存在/为空等打包前置异常，保留 packer 的原始提示
+                yield event.plain_result(str(e))
+                break
             except Exception as e:
                 logger.error(f"Pixiv 插件：Fanbox 打包失败 - {e}")
                 yield event.plain_result(f"打包失败: {e}")
