@@ -165,6 +165,7 @@ class PixivConfig:
         self.fanbox_dl_concurrency = self._get_int("fanbox_dl_concurrency", 4)
         self.fanbox_dl_prefetch_queue = self._get_int("fanbox_dl_prefetch_queue", 4)
         self.fanbox_dl_pack_size_mb = self._get_int("fanbox_dl_pack_size_mb", 100)
+        self.fanbox_dl_send_limit_mb = self._get_int("fanbox_dl_send_limit_mb", 1024)
         self.image_proxy_host = self.config.get("image_proxy_host", "i.pixiv.re")
         self.use_image_proxy = self.config.get("use_image_proxy", True)
         self.api_proxy_host = self.config.get("api_proxy_host", "").strip()
@@ -288,6 +289,7 @@ class PixivConfigManager:
             "fanbox_dl_concurrency": {"type": "int", "min": 1, "max": 16, "hidden": True},
             "fanbox_dl_prefetch_queue": {"type": "int", "min": 1, "max": 32, "hidden": True},
             "fanbox_dl_pack_size_mb": {"type": "int", "min": 1, "max": 2048, "hidden": True},
+            "fanbox_dl_send_limit_mb": {"type": "int", "min": 0, "max": 102400, "hidden": True},
         }
 
     def get_help_text(self) -> str:

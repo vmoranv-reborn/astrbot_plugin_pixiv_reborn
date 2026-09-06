@@ -1794,30 +1794,71 @@ class FanboxHandler:
         removed = cleanup_stale_packs(temp_dir)
         if removed:
             logger.info(f"Pixiv 插件：清理 {removed} 个过期 Fanbox 打包文件")
+
+        # 发送上限预估：源目录总大小超限直接拒绝，防止误操作打爆队列
+        send_limit = (
+            getattr(self.pixiv_config, "fanbox_dl_send_limit_mb", 1024) * 1024 * 1024
+        )  # 0 表示不拦截
+        try:
+            total_bytes = self.dl_manager.creator_size_bytes(dir_name)
+        except FileNotFoundError as e:
+            yield event.plain_result(str(e))
+            return
+        if send_limit > 0 and total_bytes > send_limit:
+            logger.warning(
+                f"Pixiv 插件：Fanbox 打包发送被上限拦截 {dir_name}，"
+                f"{total_bytes / 1024 / 1024:.1f} MB > {send_limit / 1024 / 1024:.0f} MB"
+            )
+            yield event.plain_result(
+                f"目录总大小 {total_bytes / 1024 / 1024:.1f} MB，超过发送上限"
+                f"（{send_limit / 1024 / 1024:.0f}MB，配置项 fanbox_dl_send_limit_mb），"
+                f"已取消打包。\n目录路径: {self.dl_manager.creator_dir(dir_name)}"
+            )
+            return
+
         pack_limit = getattr(self.pixiv_config, "fanbox_dl_pack_size_mb", 100) * 1024 * 1024
         try:
-            parts, password = self.dl_manager.pack_creator(
+            parts_iter = self.dl_manager.pack_creator(
                 dir_name, temp_dir, part_limit=pack_limit
             )
         except FileNotFoundError as e:
             yield event.plain_result(str(e))
             return
-        except Exception as e:
-            logger.error(f"Pixiv 插件：Fanbox 打包失败 - {e}")
-            yield event.plain_result(f"打包失败: {e}")
-            return
 
-        total = len(parts)
-        for idx, zip_path in enumerate(parts, start=1):
+        logger.info(f"Pixiv 插件：Fanbox 打包任务开始 {dir_name}")
+        yield event.plain_result(
+            f"开始打包 {dir_name}（{total_bytes / 1024 / 1024:.1f} MB），"
+            f"按 {pack_limit / 1024 / 1024:.0f}MB 分卷，压好一卷发一卷…"
+        )
+        sent_parts: list[Path] = []
+        part_total = 0
+        _EXHAUSTED = object()
+        while True:
+            try:
+                # 压缩是 CPU 密集操作，放工作线程逐卷驱动，不冻结事件循环
+                item = await asyncio.to_thread(next, parts_iter, _EXHAUSTED)
+            except Exception as e:
+                logger.error(f"Pixiv 插件：Fanbox 打包失败 - {e}")
+                yield event.plain_result(f"打包失败: {e}")
+                break
+            if item is _EXHAUSTED:
+                break
+            zip_path, password, idx, part_total = item
             size_mb = zip_path.stat().st_size / 1024 / 1024
-            part_text = f"（第 {idx}/{total} 卷）" if total > 1 else ""
+            part_text = f"（第 {idx}/{part_total} 卷）" if part_total > 1 else ""
             if zip_path.stat().st_size > pack_limit:
+                logger.warning(
+                    f"Pixiv 插件：Fanbox 第 {idx} 卷超单卷上限未发送 {zip_path}"
+                )
                 yield event.plain_result(
-                    f"压缩包{part_text} {size_mb:.1f} MB，超过发送上限"
+                    f"压缩包{part_text} {size_mb:.1f} MB，超过单卷发送上限"
                     f"（{pack_limit / 1024 / 1024:.0f}MB），未发送。"
                     f"\n文件路径: {zip_path}\n解压密码: {password}"
                 )
                 continue
+            logger.info(
+                f"Pixiv 插件：Fanbox 正在发送第 {idx}/{part_total} 卷，{size_mb:.1f} MB"
+            )
             yield event.chain_result(
                 [
                     Comp.File(name=zip_path.name, file=str(zip_path)),
@@ -1827,15 +1868,31 @@ class FanboxHandler:
                     ),
                 ]
             )
-        # 延迟删除已发送分卷，避免框架发送完成前文件被删
-        asyncio.create_task(self._delete_pack_files_later(parts))
+            sent_parts.append(zip_path)
+        logger.info(
+            f"Pixiv 插件：Fanbox 打包任务结束 {dir_name}，"
+            f"共 {part_total} 卷，已发送 {len(sent_parts)} 卷"
+        )
+        if sent_parts:
+            # 延迟删除已发送分卷，按卷数缩放避免上传中途被删
+            asyncio.create_task(
+                self._delete_pack_files_later(
+                    sent_parts, delay=300 + 60 * len(sent_parts)
+                )
+            )
 
     @staticmethod
     async def _delete_pack_files_later(parts: list[Path], delay: float = 300):
         """发送后延迟清理分卷文件。"""
+        logger.debug(
+            f"Pixiv 插件：Fanbox 打包分卷将于 {delay:.0f}s 后清理，共 {len(parts)} 个"
+        )
         await asyncio.sleep(delay)
+        removed = 0
         for p in parts:
             try:
                 p.unlink(missing_ok=True)
+                removed += 1
             except OSError as exc:
                 logger.warning(f"Pixiv 插件：删除打包分卷失败 {p} - {exc}")
+        logger.info(f"Pixiv 插件：Fanbox 清理打包分卷 {removed}/{len(parts)} 个")
