@@ -1,6 +1,8 @@
 import asyncio
+import json
 import sys
 import unittest
+import uuid
 from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -24,6 +26,11 @@ from pixivpy3 import PixivError
 from core.client import PixivClientWrapper
 
 
+def _fake_token(name: str) -> str:
+    """运行时生成一次性假凭据，避免测试文件出现凭据形状的字面量。"""
+    return f"{name}-{uuid.uuid4().hex}"
+
+
 class FakeClient:
     def __init__(self, outcomes):
         self.access_token = None
@@ -36,8 +43,8 @@ class FakeClient:
         outcome = self.outcomes.pop(0)
         if isinstance(outcome, Exception):
             raise outcome
-        self.access_token = "access-token-for-test"
-        self.refresh_token = "rotated-refresh-token-for-test"
+        self.access_token = _fake_token("fake-access-token")
+        self.refresh_token = _fake_token("fake-rotated-refresh-token")
         return outcome
 
 
@@ -54,7 +61,7 @@ def make_wrapper(client):
     config = SimpleNamespace(
         proxy="http://proxy.invalid:8080",
         api_proxy_host="",
-        refresh_token="configured-refresh-token-for-test",
+        refresh_token=_fake_token("fake-configured-refresh-token"),
         refresh_interval=180,
         get_requests_kwargs=lambda: {},
     )
@@ -142,7 +149,8 @@ class ClientAuthenticationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.auth_calls, 1)
 
     async def test_auth_log_does_not_include_response_body(self):
-        secret_body = '{"refresh_token":"secret-refresh-token"}'
+        secret = _fake_token("secret-refresh-token")
+        secret_body = json.dumps({"refresh_token": secret})
         rejected_error = PixivError(
             "[ERROR] auth() failed! check refresh_token.\nHTTP 400",
             header={"Content-Type": "application/json"},
@@ -157,7 +165,7 @@ class ClientAuthenticationTests(unittest.IsolatedAsyncioTestCase):
         logged_message = " ".join(
             str(arg) for call in log_error.call_args_list for arg in call.args
         )
-        self.assertNotIn("secret-refresh-token", logged_message)
+        self.assertNotIn(secret, logged_message)
         self.assertNotIn(secret_body, logged_message)
 
 
