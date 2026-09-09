@@ -5,7 +5,6 @@ import aiohttp
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.api import logger
-from astrbot.api.all import command 
 
 from .utils.database import initialize_database
 from .utils.subscription import SubscriptionService
@@ -31,7 +30,7 @@ class PixivSearchPlugin(Star):
     AstrBot 插件，用于通过 Pixiv API 搜索插画。
     配置通过 AstrBot WebUI 进行管理。
     用法:
-        /pixiv <标签1>,<标签2>,...  搜索 Pixiv 插画
+        /pixiv search <标签1>,<标签2>,...  搜索 Pixiv 插画
         /pixiv help                 查看帮助信息
     可在配置中设置认证信息、返回数量和 R18 过滤模式。
     """
@@ -132,15 +131,71 @@ class PixivSearchPlugin(Star):
             "homepage": "https://github.com/vmoranv-reborn/astrbot_plugin_pixiv_search",
         }
 
-    # --------插画类
+    @filter.command_group("pixiv")
+    def pixiv(self):
+        """Pixiv 功能指令组"""
+        pass
 
-    @command("pixiv")
+    @pixiv.command("search")
     async def pixiv_search_illust(self, event: AstrMessageEvent, tags: str = ""):
-        """处理 /pixiv 命令，默认为标签搜索功能"""
+        """按标签搜索 Pixiv 插画"""
         async for result in self.illust_handler.pixiv_search_illust(event, tags):
             yield result
 
-    @command("pixiv_illust_new")
+    @pixiv.command("deep")
+    async def pixiv_deepsearch(self, event: AstrMessageEvent, tags: str):
+        """深度搜索 Pixiv 插画"""
+        async for result in self.illust_handler.pixiv_deepsearch(event, tags):
+            yield result
+
+    @pixiv.command("and")
+    async def pixiv_and(self, event: AstrMessageEvent, tags: str = ""):
+        """搜索同时包含所有指定标签的插画"""
+        async for result in self.illust_handler.pixiv_and(event, tags):
+            yield result
+
+    @pixiv.command("hot")
+    async def pixiv_hot(
+        self,
+        event: AstrMessageEvent,
+        tag: str = "",
+        duration: str = "",
+        pages: str = "",
+    ):
+        """按热度（收藏数）搜索作品"""
+        async for result in self.illust_handler.pixiv_hot(event, tag, duration, pages):
+            yield result
+
+    @pixiv.command("help")
+    async def pixiv_help(self, event: AstrMessageEvent, args: str = ""):
+        """生成并返回帮助信息"""
+
+        help_text = get_help_message("pixiv_help", "帮助消息加载失败，请检查配置文件。")
+        yield event.plain_result(help_text)
+
+    @pixiv.command("ai")
+    async def pixiv_ai_show_settings(self, event: AstrMessageEvent, setting: str = ""):
+        """设置是否展示AI生成作品"""
+        async for result in self.misc_handler.pixiv_ai_show_settings(event, setting):
+            yield result
+
+    @pixiv.command("config")
+    async def pixiv_config(
+        self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""
+    ):
+        """查看或动态设置 Pixiv 插件参数（除 refresh_token）。"""
+        result = await self.config_manager.handle_config_command(event, arg1, arg2)
+        if result:
+            yield event.plain_result(result)
+
+    # --------插画类
+
+    @pixiv.group("illust")
+    def pixiv_illust_group(self):
+        """插画查询指令组"""
+        pass
+
+    @pixiv_illust_group.command("new")
     async def pixiv_illust_new(
         self,
         event: AstrMessageEvent,
@@ -153,16 +208,10 @@ class PixivSearchPlugin(Star):
         ):
             yield result
 
-    @command("pixiv_recommended")
+    @pixiv_illust_group.command("recommended")
     async def pixiv_recommended(self, event: AstrMessageEvent, args: str = ""):
         """获取 Pixiv 推荐作品"""
         async for result in self.illust_handler.pixiv_recommended(event, args):
-            yield result
-
-    @command("pixiv_and")
-    async def pixiv_and(self, event: AstrMessageEvent, tags: str = ""):
-        """处理 /pixiv_and 命令，进行 AND 逻辑深度搜索"""
-        async for result in self.illust_handler.pixiv_and(event, tags):
             yield result
 
     @filter.event_message_type(filter.EventMessageType.ALL)
@@ -170,14 +219,14 @@ class PixivSearchPlugin(Star):
         """处理url消息事件,判断是否为p站插画链接,并发送图片"""
         async for result in self.illust_handler.pixiv_msg_url(event, event.message_str):
             yield result
-            
-    @command("pixiv_specific")
+
+    @pixiv_illust_group.command("get")
     async def pixiv_specific(self, event: AstrMessageEvent, illust_id: str = ""):
         """根据作品 ID 获取特定作品详情"""
         async for result in self.illust_handler.pixiv_specific(event, illust_id):
             yield result
 
-    @command("pixiv_ranking")
+    @pixiv_illust_group.command("ranking")
     async def pixiv_ranking(
         self, event: AstrMessageEvent, mode: str = "", date: str = ""
     ):
@@ -186,23 +235,13 @@ class PixivSearchPlugin(Star):
         async for result in self.illust_handler.pixiv_ranking(event, args):
             yield result
 
-    @command("pixiv_related")
+    @pixiv_illust_group.command("related")
     async def pixiv_related(self, event: AstrMessageEvent, illust_id: str = ""):
         """获取与指定作品相关的其他作品"""
         async for result in self.illust_handler.pixiv_related(event, illust_id):
             yield result
 
-    @command("pixiv_deepsearch")
-    async def pixiv_deepsearch(self, event: AstrMessageEvent, tags: str):
-        """
-        深度搜索 Pixiv 插画，通过翻页获取多页结果
-        用法: /pixiv_deepsearch <标签1>,<标签2>,...
-        注意: 翻页深度由配置中的 deep_search_depth 参数控制
-        """
-        async for result in self.illust_handler.pixiv_deepsearch(event, tags):
-            yield result
-
-    @command("pixiv_illust_comments")
+    @pixiv_illust_group.command("comments")
     async def pixiv_illust_comments(
         self, event: AstrMessageEvent, illust_id: str = "", offset: str = ""
     ):
@@ -212,7 +251,7 @@ class PixivSearchPlugin(Star):
         ):
             yield result
 
-    @command("pixiv_showcase_article")
+    @pixiv_illust_group.command("showcase")
     async def pixiv_showcase_article(
         self, event: AstrMessageEvent, showcase_id: str = ""
     ):
@@ -222,21 +261,32 @@ class PixivSearchPlugin(Star):
         ):
             yield result
 
+    @pixiv_illust_group.command("trending")
+    async def pixiv_trending_tags(self, event: AstrMessageEvent):
+        """获取 Pixiv 插画趋势标签"""
+        async for result in self.misc_handler.pixiv_trending_tags(event):
+            yield result
+
     # ----用户类
 
-    @command("pixiv_user_search")
+    @pixiv.group("user")
+    def pixiv_user_group(self):
+        """用户查询指令组"""
+        pass
+
+    @pixiv_user_group.command("search")
     async def pixiv_user_search(self, event: AstrMessageEvent, username: str = ""):
         """搜索 Pixiv 用户"""
         async for result in self.user_handler.pixiv_user_search(event, username):
             yield result
 
-    @command("pixiv_user_detail")
+    @pixiv_user_group.command("detail")
     async def pixiv_user_detail(self, event: AstrMessageEvent, user_id: str = ""):
         """获取 Pixiv 用户详情"""
         async for result in self.user_handler.pixiv_user_detail(event, user_id):
             yield result
 
-    @command("pixiv_user_illusts")
+    @pixiv_user_group.command("works")
     async def pixiv_user_illusts(self, event: AstrMessageEvent, user_id: str = ""):
         """获取指定用户的作品"""
         async for result in self.user_handler.pixiv_user_illusts(event, user_id):
@@ -244,31 +294,36 @@ class PixivSearchPlugin(Star):
 
     # --------小说类
 
-    @command("pixiv_novel")
+    @pixiv.group("novel")
+    def pixiv_novel_group(self):
+        """小说查询指令组"""
+        pass
+
+    @pixiv_novel_group.command("search")
     async def pixiv_novel(self, event: AstrMessageEvent, tags: str = ""):
-        """处理 /pixiv_novel 命令，搜索 Pixiv 小说"""
+        """按标签搜索 Pixiv 小说"""
         async for result in self.novel_handler.pixiv_novel(event, tags):
             yield result
 
-    @command("pixiv_novel_recommended")
+    @pixiv_novel_group.command("recommended")
     async def pixiv_novel_recommended(self, event: AstrMessageEvent):
         """获取 Pixiv 推荐小说"""
         async for result in self.novel_handler.pixiv_novel_recommended(event):
             yield result
 
-    @command("pixiv_novel_new")
+    @pixiv_novel_group.command("new")
     async def pixiv_novel_new(self, event: AstrMessageEvent, max_novel_id: str = ""):
         """获取大家的新小说"""
         async for result in self.novel_handler.pixiv_novel_new(event, max_novel_id):
             yield result
 
-    @command("pixiv_novel_series")
+    @pixiv_novel_group.command("series")
     async def pixiv_novel_series(self, event: AstrMessageEvent, series_id: str = ""):
         """获取小说系列详情"""
         async for result in self.novel_handler.pixiv_novel_series(event, series_id):
             yield result
 
-    @command("pixiv_novel_comments")
+    @pixiv_novel_group.command("comments")
     async def pixiv_novel_comments(
         self, event: AstrMessageEvent, novel_id: str = "", offset: str = ""
     ):
@@ -278,7 +333,7 @@ class PixivSearchPlugin(Star):
         ):
             yield result
 
-    @command("pixiv_novel_download")
+    @pixiv_novel_group.command("download")
     async def pixiv_novel_download(self, event: AstrMessageEvent, novel_id: str = ""):
         """根据ID下载Pixiv小说为pdf文件"""
         async for result in self.novel_handler.pixiv_novel_download(event, novel_id):
@@ -286,7 +341,12 @@ class PixivSearchPlugin(Star):
 
     # ----订阅类
 
-    @command("pixiv_subscribe_add")
+    @pixiv.group("subscribe")
+    def pixiv_subscribe_group(self):
+        """画师订阅指令组"""
+        pass
+
+    @pixiv_subscribe_group.command("add")
     async def pixiv_subscribe_add(self, event: AstrMessageEvent, artist_id: str = ""):
         """订阅画师"""
         async for result in self.subscribe_handler.pixiv_subscribe_add(
@@ -294,7 +354,7 @@ class PixivSearchPlugin(Star):
         ):
             yield result
 
-    @command("pixiv_subscribe_remove")
+    @pixiv_subscribe_group.command("remove")
     async def pixiv_subscribe_remove(
         self, event: AstrMessageEvent, artist_id: str = ""
     ):
@@ -304,64 +364,62 @@ class PixivSearchPlugin(Star):
         ):
             yield result
 
-    @command("pixiv_subscribe_list")
+    @pixiv_subscribe_group.command("list")
     async def pixiv_subscribe_list(self, event: AstrMessageEvent, args: str = ""):
         """查看当前订阅列表"""
         async for result in self.subscribe_handler.pixiv_subscribe_list(event, args):
             yield result
 
-    @command("pixiv_help")
-    async def pixiv_help(self, event: AstrMessageEvent, args: str = ""):
-        """生成并返回帮助信息"""
-
-        help_text = get_help_message("pixiv_help", "帮助消息加载失败，请检查配置文件。")
-        yield event.plain_result(help_text)
-
     # ----随机搜索类
 
-    @command("pixiv_random_add")
+    @pixiv.group("random")
+    def pixiv_random_group(self):
+        """随机搜索指令组"""
+        pass
+
+    @pixiv_random_group.command("add")
     async def pixiv_random_add(self, event: AstrMessageEvent, tags: str = ""):
         """添加随机搜索标签"""
         async for result in self.random_illust_handler.pixiv_random_add(event, tags):
             yield result
 
-    @command("pixiv_random_del")
+    @pixiv_random_group.command("del")
     async def pixiv_random_del(self, event: AstrMessageEvent, index: str = ""):
         """删除随机搜索标签"""
         async for result in self.random_illust_handler.pixiv_random_del(event, index):
             yield result
 
-    @command("pixiv_random_list")
+    @pixiv_random_group.command("list")
     async def pixiv_random_list(self, event: AstrMessageEvent, args: str = ""):
         """列出当前群聊/用户的随机搜索标签"""
         async for result in self.random_illust_handler.pixiv_random_list(event, args):
             yield result
 
-    @command("pixiv_random_suspend")
+    @pixiv_random_group.command("suspend")
     async def pixiv_random_suspend(self, event: AstrMessageEvent):
         """暂停当前群聊的随机搜索功能"""
         async for result in self.random_illust_handler.pixiv_random_suspend(event):
             yield result
 
-    @command("pixiv_random_resume")
+    @pixiv_random_group.command("resume")
     async def pixiv_random_resume(self, event: AstrMessageEvent):
         """恢复当前群聊的随机搜索功能"""
         async for result in self.random_illust_handler.pixiv_random_resume(event):
             yield result
 
-    @command("pixiv_random_status")
+    @pixiv_random_group.command("status")
     async def pixiv_random_status(self, event: AstrMessageEvent):
         """查看随机搜索队列状态"""
         async for result in self.random_illust_handler.pixiv_random_status(event):
             yield result
 
-    @command("pixiv_random_force")
+    @pixiv_random_group.command("force")
     async def pixiv_random_force(self, event: AstrMessageEvent):
         """强制执行当前群聊的随机搜索（调试用）"""
         async for result in self.random_illust_handler.pixiv_random_force(event):
             yield result
 
-    @command("pixiv_random_ranking_add")
+    @pixiv_random_group.command("ranking-add")
     async def pixiv_random_ranking_add(
         self, event: AstrMessageEvent, mode: str = "", date: str = ""
     ):
@@ -372,7 +430,7 @@ class PixivSearchPlugin(Star):
         ):
             yield result
 
-    @command("pixiv_random_ranking_del")
+    @pixiv_random_group.command("ranking-del")
     async def pixiv_random_ranking_del(self, event: AstrMessageEvent, index: str = ""):
         """删除随机排行榜配置"""
         async for result in self.random_illust_handler.pixiv_random_ranking_del(
@@ -380,7 +438,7 @@ class PixivSearchPlugin(Star):
         ):
             yield result
 
-    @command("pixiv_random_ranking_list")
+    @pixiv_random_group.command("ranking-list")
     async def pixiv_random_ranking_list(self, event: AstrMessageEvent, args: str = ""):
         """列出当前群聊的随机排行榜配置"""
         async for result in self.random_illust_handler.pixiv_random_ranking_list(
@@ -388,42 +446,14 @@ class PixivSearchPlugin(Star):
         ):
             yield result
 
-    # ----杂项类
-    @command("pixiv_trending_tags")
-    async def pixiv_trending_tags(self, event: AstrMessageEvent):
-        """获取 Pixiv 插画趋势标签"""
-        async for result in self.misc_handler.pixiv_trending_tags(event):
-            yield result
+    # ----Fanbox
 
-    @command("pixiv_ai_show_settings")
-    async def pixiv_ai_show_settings(self, event: AstrMessageEvent, setting: str = ""):
-        """设置是否展示AI生成作品"""
-        async for result in self.misc_handler.pixiv_ai_show_settings(event, setting):
-            yield result
+    @pixiv.group("fanbox")
+    def pixiv_fanbox_group(self):
+        """Fanbox 指令组"""
+        pass
 
-    @command("pixiv_config")
-    async def pixiv_config(
-        self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""
-    ):
-        """查看或动态设置 Pixiv 插件参数（除 refresh_token）。"""
-        # 使用配置管理器处理命令
-        result = await self.config_manager.handle_config_command(event, arg1, arg2)
-        if result:
-            yield event.plain_result(result)
-
-    @command("pixiv_hot")
-    async def pixiv_hot(
-        self,
-        event: AstrMessageEvent,
-        tag: str = "",
-        duration: str = "",
-        pages: str = "",
-    ):
-        """按热度（收藏数）搜索作品"""
-        async for result in self.illust_handler.pixiv_hot(event, tag, duration, pages):
-            yield result
-
-    @command("pixiv_fanbox_creator")
+    @pixiv_fanbox_group.command("creator")
     async def pixiv_fanbox_creator(
         self,
         event: AstrMessageEvent,
@@ -435,19 +465,19 @@ class PixivSearchPlugin(Star):
         async for result in self.fanbox_handler.pixiv_fanbox_creator(event, args):
             yield result
 
-    @command("pixiv_fanbox_post")
+    @pixiv_fanbox_group.command("post")
     async def pixiv_fanbox_post(self, event: AstrMessageEvent, args: str = ""):
         """获取 Fanbox 帖子详情"""
         async for result in self.fanbox_handler.pixiv_fanbox_post(event, args):
             yield result
 
-    @command("pixiv_fanbox_recommended")
+    @pixiv_fanbox_group.command("recommended")
     async def pixiv_fanbox_recommended(self, event: AstrMessageEvent, args: str = "5"):
         """获取 Fanbox 推荐创作者"""
         async for result in self.fanbox_handler.pixiv_fanbox_recommended(event, args):
             yield result
 
-    @command("pixiv_fanbox_artist")
+    @pixiv_fanbox_group.command("artist")
     async def pixiv_fanbox_artist(
         self,
         event: AstrMessageEvent,
@@ -459,25 +489,25 @@ class PixivSearchPlugin(Star):
         async for result in self.fanbox_handler.pixiv_fanbox_artist(event, args):
             yield result
 
-    @command("pixiv_fanbox_dl")
+    @pixiv_fanbox_group.command("download")
     async def pixiv_fanbox_dl(self, event: AstrMessageEvent, args: str = ""):
         """批量下载创作者 Fanbox 帖子"""
         async for result in self.fanbox_handler.pixiv_fanbox_dl(event, args):
             yield result
 
-    @command("pixiv_fanbox_dl_status")
+    @pixiv_fanbox_group.command("status")
     async def pixiv_fanbox_dl_status(self, event: AstrMessageEvent):
         """查看 Fanbox 下载任务进度"""
         async for result in self.fanbox_handler.pixiv_fanbox_dl_status(event):
             yield result
 
-    @command("pixiv_fanbox_dl_stop")
+    @pixiv_fanbox_group.command("stop")
     async def pixiv_fanbox_dl_stop(self, event: AstrMessageEvent):
         """停止 Fanbox 下载任务"""
         async for result in self.fanbox_handler.pixiv_fanbox_dl_stop(event):
             yield result
 
-    @command("pixiv_fanbox_dl_view")
+    @pixiv_fanbox_group.command("view")
     async def pixiv_fanbox_dl_view(self, event: AstrMessageEvent, args: str = ""):
         """查看/发送/打包已下载的 Fanbox 内容"""
         async for result in self.fanbox_handler.pixiv_fanbox_dl_view(event, args):
