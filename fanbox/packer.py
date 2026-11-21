@@ -69,7 +69,9 @@ def iter_encrypted_pack_parts(
     for idx, group in enumerate(groups, start=1):
         suffix = f"_part{idx}of{total}" if total > 1 else ""
         zip_path = temp_dir / f"fanbox_pack_{dir_name}_{stamp}{suffix}.zip"
-        logger.info(f"Pixiv 插件：Fanbox 正在压缩第 {idx}/{total} 卷（{len(group)} 个文件）")
+        logger.info(
+            f"Pixiv 插件：Fanbox 正在压缩第 {idx}/{total} 卷（{len(group)} 个文件）"
+        )
         with pyzipper.AESZipFile(
             zip_path,
             "w",
@@ -80,7 +82,9 @@ def iter_encrypted_pack_parts(
             zf.setencryption(pyzipper.WZ_AES, nbits=256)
             for f in group:
                 zf.write(f, f.relative_to(creator_dir))
-                logger.debug(f"Pixiv 插件：Fanbox 打包写入 {f.relative_to(creator_dir)}")
+                logger.debug(
+                    f"Pixiv 插件：Fanbox 打包写入 {f.relative_to(creator_dir)}"
+                )
         logger.info(
             f"Pixiv 插件：Fanbox 第 {idx}/{total} 卷压缩完成，"
             f"{zip_path.stat().st_size / 1024 / 1024:.1f} MB"

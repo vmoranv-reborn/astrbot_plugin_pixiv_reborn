@@ -69,8 +69,12 @@ class FanboxPost:
 
         blocks = body.get("blocks")
         if isinstance(blocks, list) and blocks:
-            image_map = body.get("imageMap") if isinstance(body.get("imageMap"), dict) else {}
-            file_map = body.get("fileMap") if isinstance(body.get("fileMap"), dict) else {}
+            image_map = (
+                body.get("imageMap") if isinstance(body.get("imageMap"), dict) else {}
+            )
+            file_map = (
+                body.get("fileMap") if isinstance(body.get("fileMap"), dict) else {}
+            )
             result: list[Downloadable] = []
             for block in blocks:
                 if not isinstance(block, dict):
@@ -101,7 +105,9 @@ class FanboxPost:
             texts = [
                 b["text"].strip()
                 for b in blocks
-                if isinstance(b, dict) and isinstance(b.get("text"), str) and b["text"].strip()
+                if isinstance(b, dict)
+                and isinstance(b.get("text"), str)
+                and b["text"].strip()
             ]
             if texts:
                 return "\n\n".join(texts)
