@@ -1,20 +1,14 @@
-from pathlib import Path
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
-from ..utils.pixiv_utils import send_pixiv_image, send_forward_message
-from ..utils.help import get_help_message
-from ..utils.tag import (
-    build_detail_message,
-    FilterConfig,
-    validate_and_process_tags,
-    process_and_send_illusts,
-)
+from ..infra.files import send_bytes_as_file
+from ..infra.pdf import create_pdf_from_text
+from ..media.pixiv_utils import send_pixiv_image, send_forward_message
+from ..infra.help import get_help_message
+from ..domain.tag import FilterConfig, build_detail_message, validate_and_process_tags
+from ..services.delivery import process_and_send_illusts
 import asyncio
 import io
-import base64
 import hashlib
-from astrbot.api.message_components import File
-from fpdf import FPDF
 
 
 class NovelHandler:
@@ -27,8 +21,6 @@ class NovelHandler:
         self.client_wrapper = client_wrapper
         self.client = client_wrapper.client_api
         self.pixiv_config = pixiv_config
-        # 字体相关初始化
-        self.font_path = Path(__file__).parent / "data" / "SmileySans-Oblique.ttf"
 
     async def pixiv_novel(self, event: AstrMessageEvent, tags: str = ""):
         """处理 /pixiv_novel 命令，搜索 Pixiv 小说"""
@@ -521,7 +513,7 @@ class NovelHandler:
 
             # 生成 PDF 字节流
             pdf_bytes = await asyncio.to_thread(
-                self.create_pdf_from_text, novel_title, novel_text
+                create_pdf_from_text, novel_title, novel_text
             )
             logger.info("Pixiv 插件：小说内容已成功转换为 PDF 字节流。")
 
@@ -539,7 +531,7 @@ class NovelHandler:
             password_notice = ""
 
             try:
-                from PyPDF2 import PdfReader, PdfWriter
+                from pypdf import PdfReader, PdfWriter
 
                 reader = PdfReader(io.BytesIO(pdf_bytes))
                 writer = PdfWriter()
@@ -556,52 +548,18 @@ class NovelHandler:
                 password_notice = f"PDF已加密，密码为小说ID的MD5值: {password}"
 
             except ImportError:
-                logger.warning("PyPDF2 未安装，无法加密PDF。将发送未加密的文件。")
+                logger.warning("pypdf 未安装，无法加密PDF。将发送未加密的文件。")
                 final_pdf_bytes = pdf_bytes  # 回退到未加密版本
-                password_notice = "【注意】PyPDF2库未安装，本次发送的PDF未加密。"
+                password_notice = "【注意】pypdf 库未安装，本次发送的PDF未加密。"
 
-            # 将文件内容编码为 Base64 URI
-            file_base64 = base64.b64encode(final_pdf_bytes).decode("utf-8")
-            base64_uri = f"base64://{file_base64}"
+            logger.info("Pixiv 插件：PDF 已生成，准备通过标准 File 组件发送。")
+            try:
+                await send_bytes_as_file(event, final_pdf_bytes, file_name)
+            except Exception as send_error:
+                logger.error(f"Pixiv 插件：发送 PDF 文件失败: {send_error}")
+                yield event.plain_result(f"发送 PDF 文件失败: {send_error}")
+                return
 
-            logger.info("Pixiv 插件：PDF 内容已编码为 Base64，准备发送。")
-
-            # 检查平台并发送文件
-            if event.get_platform_name() == "aiocqhttp" and event.get_group_id():
-                from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
-                    AiocqhttpMessageEvent,
-                )
-
-                if isinstance(event, AiocqhttpMessageEvent):
-                    client = event.bot
-                    group_id = event.get_group_id()
-                    try:
-                        logger.info(
-                            f"Pixiv 插件：使用 aiocqhttp API (Base64) 上传群文件 {file_name} 到群组 {group_id}"
-                        )
-                        await client.upload_group_file(
-                            group_id=group_id, file=base64_uri, name=file_name
-                        )
-                        logger.info(
-                            "Pixiv 插件：成功调用 aiocqhttp API (Base64) 发送PDF。"
-                        )
-                        # 发送密码提示
-                        if password_notice:
-                            yield event.plain_result(password_notice)
-                        return
-                    except Exception as api_e:
-                        logger.error(
-                            f"Pixiv 插件：调用 aiocqhttp API (Base64) 发送文件失败: {api_e}"
-                        )
-                        yield event.plain_result(
-                            f"通过高速接口发送文件失败: {api_e}。请联系管理员检查后端配置。"
-                        )
-                        return
-
-            logger.info(
-                "非 aiocqhttp 平台或私聊，尝试使用标准 File 组件 (Base64) 发送。"
-            )
-            yield event.chain_result([File(name=file_name, file=base64_uri)])
             if password_notice:
                 yield event.plain_result(password_notice)
 
@@ -613,29 +571,3 @@ class NovelHandler:
         except Exception as e:
             logger.error(f"Pixiv 插件：下载或转换小说为PDF时发生错误 - {e}")
             yield event.plain_result(f"处理小说时发生错误: {str(e)}")
-
-    def create_pdf_from_text(self, title: str, text: str) -> bytes:
-        """使用 fpdf2 将文本转换为 PDF 字节流"""
-        if not self.font_path.exists():
-            logger.error(f"字体文件不存在，无法创建PDF: {self.font_path}")
-            raise FileNotFoundError(f"字体文件不存在: {self.font_path}")
-
-        pdf = FPDF()
-        pdf.add_page()
-
-        # 添加并使用我们自己下载的字体
-        pdf.add_font("SmileySans", "", str(self.font_path), uni=True)
-        pdf.set_font("SmileySans", size=20)
-
-        # 添加标题
-        pdf.multi_cell(0, 10, title, align="C")
-        pdf.ln(10)
-
-        # 设置正文样式
-        pdf.set_font_size(12)
-
-        # 添加正文
-        pdf.multi_cell(0, 10, text)
-
-        # 返回 PDF 内容的字节
-        return pdf.output(dest="S")

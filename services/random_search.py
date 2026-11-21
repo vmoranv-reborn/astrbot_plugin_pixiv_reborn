@@ -3,9 +3,10 @@ import random
 from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from astrbot.api import logger
-from astrbot.core.message.message_event_result import MessageChain
+from astrbot.api.event import MessageChain
 
-from .database import (
+from ..infra.message import CaptureEvent
+from ..infra.database import (
     get_all_random_search_groups,
     get_random_tags,
     filter_sent_illusts,
@@ -18,13 +19,9 @@ from .database import (
     get_all_random_ranking_groups,
     get_random_rankings,
 )
-from .tag import (
-    build_detail_message,
-    FilterConfig,
-    validate_and_process_tags,
-    process_and_send_illusts,
-)
-from .pixiv_utils import send_pixiv_image, send_forward_message
+from ..domain.tag import FilterConfig, build_detail_message, validate_and_process_tags
+from .delivery import process_and_send_illusts
+from ..media.pixiv_utils import send_pixiv_image, send_forward_message
 
 
 class RandomSearchService:
@@ -372,28 +369,8 @@ class RandomSearchService:
                 show_details=self.pixiv_config.show_details,
             )
 
-            # 创建模拟事件以捕获输出
-            class MockEvent:
-                def __init__(self):
-                    self.bot = None  # 模拟 bot 属性
-
-                def chain_result(self, chain):
-                    message_chain = MessageChain()
-                    message_chain.chain = chain
-                    return message_chain
-
-                def plain_result(self, text):
-                    message_chain = MessageChain()
-                    message_chain.message(text)
-                    return message_chain
-
-                def get_platform_name(self):
-                    return "unknown"
-
-                def get_group_id(self):
-                    return None
-
-            mock_event = MockEvent()
+            # 后台任务没有真实事件，使用统一的捕获适配器
+            mock_event = CaptureEvent()
 
             # 复用 process_and_send_illusts
             sent_illust_ids = set()  # 记录已发送的作品ID
@@ -508,27 +485,7 @@ class RandomSearchService:
                 show_details=self.pixiv_config.show_details,
             )
 
-            class MockEvent:
-                def __init__(self):
-                    self.bot = None
-
-                def chain_result(self, chain):
-                    message_chain = MessageChain()
-                    message_chain.chain = chain
-                    return message_chain
-
-                def plain_result(self, text):
-                    message_chain = MessageChain()
-                    message_chain.message(text)
-                    return message_chain
-
-                def get_platform_name(self):
-                    return "unknown"
-
-                def get_group_id(self):
-                    return None
-
-            mock_event = MockEvent()
+            mock_event = CaptureEvent()
             sent_illust_ids = set()
 
             async for message_content, related_illust_ids in process_and_send_illusts(

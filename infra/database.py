@@ -1,15 +1,18 @@
 import peewee as pw
 from datetime import datetime, timedelta
+from pathlib import Path
+
 from astrbot.api import logger
-from astrbot.api.star import StarTools
 
-# 使用 StarTools 获取标准数据目录
-data_dir = StarTools.get_data_dir("pixiv_search")
-data_dir.mkdir(parents=True, exist_ok=True)
+# 数据库在 initialize_database() 中延迟初始化，避免 import 时产生文件系统副作用。
+db = pw.SqliteDatabase(None)
 
-# 数据库文件路径
-db_path = data_dir / "subscriptions.db"
-db = pw.SqliteDatabase(str(db_path))
+
+def _default_db_path() -> Path:
+    """AstrBot 插件数据目录下的默认数据库路径。"""
+    from .paths import get_plugin_data_dir
+
+    return get_plugin_data_dir() / "subscriptions.db"
 
 
 class BaseModel(pw.Model):
@@ -122,9 +125,17 @@ def _coerce_schedule_time(value, chat_id: str = ""):
     return None
 
 
-def initialize_database():
-    """初始化数据库，创建表"""
+def initialize_database(db_path: str | Path | None = None) -> None:
+    """初始化数据库并执行轻量迁移；可传入路径便于测试隔离。"""
     try:
+        if db.database is None:
+            target = Path(db_path) if db_path else _default_db_path()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            db.init(str(target))
+        elif db_path is not None and db.is_closed():
+            target = Path(db_path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            db.init(str(target))
         db.connect(reuse_if_open=True)
         if not Subscription.table_exists():
             db.create_tables([Subscription])
@@ -427,21 +438,6 @@ def add_sent_illust(illust_id: int, chat_id: str):
         pass
     except Exception as e:
         logger.error(f"添加已发送作品记录失败: {e}")
-
-
-def is_illust_sent(illust_id: int, chat_id: str) -> bool:
-    """检查作品是否已发送过"""
-    try:
-        return (
-            SentIllust.select()
-            .where(
-                (SentIllust.illust_id == illust_id) & (SentIllust.chat_id == chat_id)
-            )
-            .exists()
-        )
-    except Exception as e:
-        logger.error(f"检查作品发送状态失败: {e}")
-        return False
 
 
 def cleanup_old_sent_illusts(days: int = 1):

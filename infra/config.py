@@ -92,11 +92,11 @@ class PixivConfig:
     def _load_config(self):
         """加载配置项"""
         self.proxy = self.config.get("proxy", "").strip()
-        self.refresh_token = self.config.get("refresh_token", None)
+        self.refresh_token = self.config.get("refresh_token", "")
         self.return_count = self.config.get("return_count", 1)
         self.r18_mode = self.config.get("r18_mode", "过滤 R18")
         self.filter_r18g_only = self.config.get("filter_r18g_only", False)
-        self.ai_filter_mode = self.config.get("ai_filter_mode", "过滤 AI 作品")
+        self.ai_filter_mode = self.config.get("ai_filter_mode", "显示 AI 作品")
         self.ai_detection_mode = self.config.get("ai_detection_mode", "field_or_tag")
         self.min_bookmarks = self.config.get("min_bookmarks", 0)
         self.min_views = self.config.get("min_views", 0)
@@ -107,7 +107,9 @@ class PixivConfig:
         self.show_details = self.config.get("show_details", True)
         self.deep_search_depth = self.config.get("deep_search_depth", 3)
         self.forward_threshold = self.config.get("forward_threshold", False)
-        raw_send_method = str(self.config.get("image_send_method", "") or "").strip().lower()
+        raw_send_method = (
+            str(self.config.get("image_send_method", "") or "").strip().lower()
+        )
         legacy_is_fromfilesystem = self.config.get("is_fromfilesystem", None)
         if raw_send_method in {"url", "file", "byte"}:
             self.image_send_method = raw_send_method
@@ -123,7 +125,7 @@ class PixivConfig:
             )
         else:
             self.image_send_method = "url"
-        self.image_quality = self.config.get("image_quality", "original")
+        self.image_quality = self.config.get("image_quality", "medium")
         # 本地 PIL 压缩：仅在 image_send_method 为 file/byte 时生效
         self.pil_compress_quality = self.config.get("pil_compress_quality", 100)
         self.pil_compress_target_kb = self.config.get("pil_compress_target_kb", 0)
@@ -132,6 +134,7 @@ class PixivConfig:
         self.subscription_force_forward = self.config.get(
             "subscription_force_forward", True
         )
+        self.subscription_max_pages = self._get_int("subscription_max_pages", 0)
         self.subscription_check_interval_minutes = self.config.get(
             "subscription_check_interval_minutes", 30
         )
@@ -152,9 +155,13 @@ class PixivConfig:
         )
         if self.fanbox_data_source not in {"auto", "official", "nekohouse"}:
             self.fanbox_data_source = "auto"
-        self.fanbox_api_proxy_host = self.config.get("fanbox_api_proxy_host", "").strip()
+        self.fanbox_api_proxy_host = self.config.get(
+            "fanbox_api_proxy_host", ""
+        ).strip()
         # TLS 指纹伪装（curl_cffi），如 edge101；留空走默认 aiohttp
-        self.fanbox_dl_impersonate = self.config.get("fanbox_dl_impersonate", "").strip()
+        self.fanbox_dl_impersonate = self.config.get(
+            "fanbox_dl_impersonate", ""
+        ).strip()
         # 批量下载策略参数（非必要不修改，见 _conf_schema.json hint）
         self.fanbox_dl_page_limit = self._get_int("fanbox_dl_page_limit", 300)
         self.fanbox_dl_max_429_retries = self._get_int("fanbox_dl_max_429_retries", 4)
@@ -200,6 +207,7 @@ class PixivConfig:
             f"refresh_interval={self.refresh_interval} 分钟, "
             f"subscription_enabled={self.subscription_enabled}, "
             f"subscription_force_forward={self.subscription_force_forward}, "
+            f"subscription_max_pages={self.subscription_max_pages}, "
             f"proxy='{effective_proxy or '未使用'}', "
             f"fanbox_sessid={'已设置' if self.fanbox_sessid else '未设置'}, "
             f"fanbox_cf_clearance={'已设置' if self.fanbox_cf_clearance else '未设置'}, "
@@ -239,7 +247,7 @@ class PixivConfigManager:
             "min_bookmarks": {"type": "int", "min": 0, "max": 100000000},
             "min_views": {"type": "int", "min": 0, "max": 100000000},
             "min_likes": {"type": "int", "min": 0, "max": 100000000},
-            "return_count": {"type": "int", "min": 1, "max": 30},
+            "return_count": {"type": "int", "min": 1, "max": 10},
             "show_filter_result": {"type": "bool"},
             "single_response_mode": {"type": "bool"},
             "show_details": {"type": "bool"},
@@ -253,12 +261,20 @@ class PixivConfigManager:
             "pil_compress_target_kb": {"type": "int", "min": 0, "max": 20480},
             "subscription_enabled": {"type": "bool"},
             "subscription_force_forward": {"type": "bool"},
+            "subscription_max_pages": {"type": "int", "min": 0, "max": 200},
             "fanbox_data_source": {
                 "type": "enum",
                 "choices": ["auto", "official", "nekohouse"],
             },
             "fanbox_user_agent": {"type": "string"},
             # 隐藏的配置项，不显示给用户但仍然可以设置
+            "refresh_token": {"type": "string", "hidden": True},
+            "pixiv_urlsearch_enabled": {"type": "bool", "hidden": True},
+            "image_proxy_host": {"type": "string", "hidden": True},
+            "use_image_proxy": {"type": "bool", "hidden": True},
+            "api_proxy_host": {"type": "string", "hidden": True},
+            "fanbox_api_proxy_host": {"type": "string", "hidden": True},
+            "fanbox_dl_impersonate": {"type": "string", "hidden": True},
             "image_send_method": {
                 "type": "enum",
                 "choices": ["url", "file", "byte"],
@@ -282,14 +298,54 @@ class PixivConfigManager:
             "fanbox_cf_clearance": {"type": "string", "hidden": True},
             "random_sent_illust_retention_days": {"type": "int", "min": 1, "max": 365},
             # Fanbox 批量下载策略参数（非必要不修改）
-            "fanbox_dl_page_limit": {"type": "int", "min": 1, "max": 300, "hidden": True},
-            "fanbox_dl_max_429_retries": {"type": "int", "min": 0, "max": 20, "hidden": True},
-            "fanbox_dl_max_cf_consecutive": {"type": "int", "min": 1, "max": 20, "hidden": True},
-            "fanbox_dl_max_retries": {"type": "int", "min": 0, "max": 20, "hidden": True},
-            "fanbox_dl_concurrency": {"type": "int", "min": 1, "max": 16, "hidden": True},
-            "fanbox_dl_prefetch_queue": {"type": "int", "min": 1, "max": 32, "hidden": True},
-            "fanbox_dl_pack_size_mb": {"type": "int", "min": 1, "max": 2048, "hidden": True},
-            "fanbox_dl_send_limit_mb": {"type": "int", "min": 0, "max": 102400, "hidden": True},
+            "fanbox_dl_page_limit": {
+                "type": "int",
+                "min": 1,
+                "max": 300,
+                "hidden": True,
+            },
+            "fanbox_dl_max_429_retries": {
+                "type": "int",
+                "min": 0,
+                "max": 20,
+                "hidden": True,
+            },
+            "fanbox_dl_max_cf_consecutive": {
+                "type": "int",
+                "min": 1,
+                "max": 20,
+                "hidden": True,
+            },
+            "fanbox_dl_max_retries": {
+                "type": "int",
+                "min": 0,
+                "max": 20,
+                "hidden": True,
+            },
+            "fanbox_dl_concurrency": {
+                "type": "int",
+                "min": 1,
+                "max": 16,
+                "hidden": True,
+            },
+            "fanbox_dl_prefetch_queue": {
+                "type": "int",
+                "min": 1,
+                "max": 32,
+                "hidden": True,
+            },
+            "fanbox_dl_pack_size_mb": {
+                "type": "int",
+                "min": 1,
+                "max": 2048,
+                "hidden": True,
+            },
+            "fanbox_dl_send_limit_mb": {
+                "type": "int",
+                "min": 0,
+                "max": 102400,
+                "hidden": True,
+            },
         }
 
     def get_help_text(self) -> str:
@@ -324,6 +380,7 @@ class PixivConfigManager:
             "pil_compress_target_kb",
             "subscription_enabled",
             "subscription_force_forward",
+            "subscription_max_pages",
             "fanbox_data_source",
             "fanbox_user_agent",
             "random_search_min_interval",
@@ -422,7 +479,7 @@ class PixivConfigManager:
 
         # 获取当前值，处理映射关系
         if key == "refresh_token_interval_minutes":
-            current_value = getattr(self.config, "refresh_interval", 720)
+            current_value = getattr(self.config, "refresh_interval", 180)
         else:
             current_value = getattr(self.config, key, "未设置")
 

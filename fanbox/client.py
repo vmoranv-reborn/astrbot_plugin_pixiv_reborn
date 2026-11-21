@@ -90,7 +90,7 @@ class FanboxAPIClient:
     def _rewrite_url(self, url: str) -> str:
         """API 返回的绝对分页 URL 在反代模式下重写到反代 host。"""
         if self._api_base != API_BASE and url.startswith(API_BASE):
-            return self._api_base + url[len(API_BASE):]
+            return self._api_base + url[len(API_BASE) :]
         return url
 
     def _check_cancelled(self):
@@ -122,7 +122,9 @@ class FanboxAPIClient:
         """GET 原文请求，返回 (status, text, headers)；按配置选择后端。"""
         proxy = self._proxy_getter()
         if self._impersonate:
-            resp = await self._get_cffi_session().get(url, headers=headers, proxy=proxy or None)
+            resp = await self._get_cffi_session().get(
+                url, headers=headers, proxy=proxy or None
+            )
             return resp.status_code, resp.text, resp.headers
         timeout = aiohttp.ClientTimeout(total=30)
         async with self._get_aiohttp_session().get(
@@ -163,7 +165,9 @@ class FanboxAPIClient:
                 self._cf_consecutive = 0
                 if isinstance(payload, dict) and payload.get("error"):
                     error = payload["error"]
-                    msg = error.get("message") if isinstance(error, dict) else str(error)
+                    msg = (
+                        error.get("message") if isinstance(error, dict) else str(error)
+                    )
                     raise RuntimeError(f"Fanbox API 错误: {msg or error}")
                 return payload
             except CloudflareBlockError as exc:
@@ -203,12 +207,15 @@ class FanboxAPIClient:
             # 旧格式回退：paginateCreator 返回 pageUrls 逐页拉取（fanbox-dl 原始路径）
             page_urls = parse_page_urls(
                 await self._get_json(
-                    f"{self._api_base}/post.paginateCreator?creatorId={creator_id}", referer
+                    f"{self._api_base}/post.paginateCreator?creatorId={creator_id}",
+                    referer,
                 )
             )
             for page_url in page_urls:
                 self._check_cancelled()
-                page_payload = await self._get_json(self._rewrite_url(page_url), referer)
+                page_payload = await self._get_json(
+                    self._rewrite_url(page_url), referer
+                )
                 page_posts, _ = parse_post_list(page_payload)
                 for post in page_posts:
                     if post.id in seen:
@@ -271,7 +278,9 @@ class FanboxAPIClient:
                         )
                         current_url = fallback_url
                         continue
-                    raise RuntimeError("原图不可用（failed to thumbnailing）且无缩略图可降级。")
+                    raise RuntimeError(
+                        "原图不可用（failed to thumbnailing）且无缩略图可降级。"
+                    )
                 if status != 200:
                     raise classify_http_error(status, body_text)
                 return dest.stat().st_size
@@ -288,7 +297,9 @@ class FanboxAPIClient:
                 wait = min(wait * 2, 30.0)
 
         self._remove_partial(dest)
-        raise RuntimeError(f"下载失败（重试 {self._max_download_retries} 次）: {last_error}")
+        raise RuntimeError(
+            f"下载失败（重试 {self._max_download_retries} 次）: {last_error}"
+        )
 
     @staticmethod
     def _validate_dest(dest: Path) -> None:
@@ -308,7 +319,9 @@ class FanboxAPIClient:
         proxy = self._proxy_getter()
         if self._impersonate:
             session = self._get_cffi_session()
-            resp = await session.get(url, headers=headers, proxy=proxy or None, stream=True)
+            resp = await session.get(
+                url, headers=headers, proxy=proxy or None, stream=True
+            )
             try:
                 if resp.status_code != 200:
                     return resp.status_code, resp.text

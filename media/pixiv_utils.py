@@ -13,9 +13,12 @@ from astrbot.api import logger
 from astrbot.api.message_components import Image, Plain, Node, Nodes
 from pixivpy3 import AppPixivAPI
 
-from .config import PixivConfig
-from .tag import filter_illusts_with_reason, FilterConfig
-from .config import smart_clean_temp_dir, clean_temp_dir
+from ..domain.tag import FilterConfig, filter_illusts_with_reason, is_ugoira
+from ..infra.config import (
+    PixivConfig,
+    clean_temp_dir,
+    smart_clean_temp_dir,
+)
 
 try:
     from PIL import Image as PILImage
@@ -138,7 +141,7 @@ def build_ugoira_info_message(
     return ugoira_info
 
 
-def _build_image_from_url(url: str) -> Optional[Image]:
+def build_image_from_url(url: str) -> Optional[Image]:
     """
         根据 URL 构建 Image 组件（不下载图片，直接通过 URL 发送）。
     仅当 image_send_method="url" 时可用，将反代后的 URL 直接传给 Image.fromURL()。
@@ -153,7 +156,9 @@ def _build_image_from_url(url: str) -> Optional[Image]:
     if not url:
         return None
     # URL 发送由平台侧拉取图片，不会复用插件下载代理；这里按配置独立控制反代
-    use_image_proxy = bool(getattr(_config, "use_image_proxy", True)) if _config else True
+    use_image_proxy = (
+        bool(getattr(_config, "use_image_proxy", True)) if _config else True
+    )
     actual_url = get_proxied_image_url(url, use_proxy=use_image_proxy)
     if actual_url and (
         actual_url.startswith("http://") or actual_url.startswith("https://")
@@ -341,7 +346,7 @@ async def _maybe_compress_image_with_pil(img_data: bytes, ext: str = ".jpg") -> 
         return img_data
 
 
-async def _build_image_from_bytes(img_data: bytes, ext: str = ".jpg") -> Image:
+async def build_image_from_bytes(img_data: bytes, ext: str = ".jpg") -> Image:
     """
     根据 image_send_method 配置，从字节数据构建 Image 组件。
 
@@ -506,6 +511,7 @@ async def send_pixiv_image(
     detail_message: str = None,
     show_details: bool = True,
     send_all_pages: bool = False,
+    max_pages: Optional[int] = None,
 ):
     """
     通用Pixiv图片下载与发送函数。
@@ -513,7 +519,7 @@ async def send_pixiv_image(
     自动选择最佳图片链接（original>large>medium），采用本地文件缓存，自动清理缓存目录，发送后删除临时文件。
     """
     # 检查是否为动图
-    if hasattr(illust, "type") and illust.type == "ugoira":
+    if is_ugoira(illust):
         logger.info(f"Pixiv 插件：检测到动图作品 - ID: {illust.id}")
         async for result in send_ugoira(
             client, event, illust, detail_message, show_details=show_details
@@ -532,18 +538,27 @@ async def send_pixiv_image(
             self.large = getattr(illust.image_urls, "large", None)
             self.medium = getattr(illust.image_urls, "medium", None)
 
-    if send_all_pages and illust.page_count > 1:
-        for i, page in enumerate(illust.meta_pages):
-            page_detail = f"第 {i + 1}/{illust.page_count} 页\n{detail_message or ''}"
+    pages = list(getattr(illust, "meta_pages", None) or [])
+    page_count = int(getattr(illust, "page_count", 1) or 1)
+
+    if send_all_pages and page_count > 1 and pages:
+        selected = pages[:max_pages] if max_pages and max_pages > 0 else pages
+        truncation = (
+            f"（仅显示前 {len(selected)}/{page_count} 页）"
+            if len(selected) < page_count
+            else ""
+        )
+        for i, page in enumerate(selected):
+            page_detail = (
+                f"第 {i + 1}/{page_count} 页{truncation}\n{detail_message or ''}"
+            )
             # 对于多页作品，page.image_urls 包含 original, large, medium
             url_sources.append((page.image_urls, page_detail))
     else:
-        if illust.page_count > 1:
-            # 多页作品的第一页
-            url_obj = illust.meta_pages[0].image_urls
-        else:
-            # 单页作品
-            url_obj = SinglePageUrls(illust)
+        # 多页但 meta_pages 缺失时退化为 image_urls 首图，避免 IndexError
+        url_obj = (
+            pages[0].image_urls if page_count > 1 and pages else SinglePageUrls(illust)
+        )
         url_sources.append((url_obj, detail_message))
 
     for url_obj, msg in url_sources:
@@ -565,7 +580,7 @@ async def send_pixiv_image(
             try:
                 # 优先尝试 URL 直接发送（不需要下载，节省内存和时间）
                 if _config.image_send_method == "url":
-                    img_comp = _build_image_from_url(image_url)
+                    img_comp = build_image_from_url(image_url)
                     if img_comp:
                         if show_details and msg:
                             yield event.chain_result([img_comp, Plain(msg)])
@@ -578,7 +593,7 @@ async def send_pixiv_image(
                 async with aiohttp.ClientSession() as session:
                     img_data = await download_image(session, image_url)
                     if img_data:
-                        img_comp = await _build_image_from_bytes(img_data)
+                        img_comp = await build_image_from_bytes(img_data)
                         if show_details and msg:
                             yield event.chain_result([img_comp, Plain(msg)])
                         else:
@@ -628,7 +643,7 @@ async def send_ugoira(
                 # 1. 先尝试使用标准Image组件发送GIF
                 logger.info(f"Pixiv 插件：使用标准Image组件发送GIF - ID: {illust.id}")
 
-                gif_comp = await _build_image_from_bytes(gif_data, ext=".gif")
+                gif_comp = await build_image_from_bytes(gif_data, ext=".gif")
                 chain_content = [gif_comp]
                 if show_details and ugoira_info:
                     chain_content.append(Plain(ugoira_info))
@@ -796,6 +811,7 @@ async def send_forward_message(
     images,
     build_detail_message_func,
     send_all_pages: bool = False,
+    max_pages: Optional[int] = None,
     summary_text: Optional[str] = None,
     single_batch: bool = False,
 ):
@@ -803,10 +819,11 @@ async def send_forward_message(
     直接下载图片并组装 nodes，避免不兼容消息类型。
     自动检测动图并使用相应的处理方式。
     """
-    batch_size = len(images) if single_batch and images else 10
+    batch_size = 10
     nickname = "PixivBot"
     # 在处理转发消息之前，先清理可能存在的旧文件
     await clean_temp_dir(_temp_dir, max_files=20)
+
     class SinglePageUrls:
         def __init__(self, illust):
             self.original = getattr(illust.meta_single_page, "original_image_url", None)
@@ -815,7 +832,7 @@ async def send_forward_message(
 
     image_items = []
     for img in images:
-        if hasattr(img, "type") and img.type == "ugoira":
+        if is_ugoira(img):
             detail_message = (
                 build_detail_message_func(img) if _config.show_details else None
             )
@@ -823,18 +840,26 @@ async def send_forward_message(
             continue
 
         detail_message = build_detail_message_func(img)
-        if send_all_pages and img.page_count > 1:
-            for page_index, page in enumerate(img.meta_pages):
-                page_detail = (
-                    f"第 {page_index + 1}/{img.page_count} 页\n{detail_message or ''}"
-                )
+        pages = list(getattr(img, "meta_pages", None) or [])
+        page_count = int(getattr(img, "page_count", 1) or 1)
+        if send_all_pages and page_count > 1 and pages:
+            selected = pages[:max_pages] if max_pages and max_pages > 0 else pages
+            truncation = (
+                f"（仅显示前 {len(selected)}/{page_count} 页）"
+                if len(selected) < page_count
+                else ""
+            )
+            for page_index, page in enumerate(selected):
+                page_detail = f"第 {page_index + 1}/{page_count} 页{truncation}\n{detail_message or ''}"
                 image_items.append(("image", img, page.image_urls, page_detail))
         else:
-            if img.page_count > 1:
-                url_obj = img.meta_pages[0].image_urls
-            else:
-                url_obj = SinglePageUrls(img)
+            url_obj = (
+                pages[0].image_urls if page_count > 1 and pages else SinglePageUrls(img)
+            )
             image_items.append(("image", img, url_obj, detail_message))
+
+    if single_batch and image_items:
+        batch_size = len(image_items)
 
     for i in range(0, len(image_items), batch_size):
         batch_items = image_items[i : i + batch_size]
@@ -852,7 +877,7 @@ async def send_forward_message(
                         # 成功获取到GIF内容
                         gif_data = content["gif_data"]
                         ugoira_info = content["ugoira_info"]
-                        gif_comp = await _build_image_from_bytes(gif_data, ext=".gif")
+                        gif_comp = await build_image_from_bytes(gif_data, ext=".gif")
                         node_content = [gif_comp]
                         if _config.show_details and ugoira_info:
                             node_content.append(Plain(ugoira_info))
@@ -888,7 +913,7 @@ async def send_forward_message(
                         img_data = await download_image(session, image_url, headers)
                         if img_data:
                             # 直接使用字节数据发送图片，避免文件系统路径问题
-                            img_comp = await _build_image_from_bytes(img_data)
+                            img_comp = await build_image_from_bytes(img_data)
                             node_content.append(img_comp)
                             image_sent = True
                             break  # 成功下载，跳出质量循环

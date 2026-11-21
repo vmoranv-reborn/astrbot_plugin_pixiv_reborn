@@ -1,6 +1,6 @@
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
-from ..utils.database import (
+from ..infra.database import (
     add_subscription,
     remove_subscription,
     list_subscriptions,

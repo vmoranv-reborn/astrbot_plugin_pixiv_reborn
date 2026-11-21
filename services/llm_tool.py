@@ -1,24 +1,21 @@
 from typing import Any, List
+import asyncio
 import hashlib
 import io
-import base64
-from pathlib import Path
 from pydantic import Field
 from pydantic.dataclasses import dataclass
-from fpdf import FPDF
 
 from astrbot.core.agent.run_context import ContextWrapper
-from astrbot.core.agent.tool import FunctionTool, ToolExecResult
+from astrbot.core.agent.tool import ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
-from astrbot.api import logger
+from astrbot.api import FunctionTool, logger
 
-from .tag import (
-    build_detail_message,
-    FilterConfig,
-    filter_illusts_with_reason,
-    process_and_send_illusts_sorted,
-)
-from .pixiv_utils import (
+from ..infra.files import send_bytes_as_file
+from ..infra.pdf import create_pdf_from_text
+from .popular_search import search_popular_illusts
+from ..domain.tag import FilterConfig, build_detail_message, filter_illusts_with_reason
+from .delivery import process_and_send_illusts_sorted
+from ..media.pixiv_utils import (
     send_pixiv_image,
     send_forward_message,
     generate_safe_filename,
@@ -100,56 +97,24 @@ class PixivIllustSearchTool(FunctionTool[AstrAgentContext]):
 
     async def _search_illust(self, tags, query, context, count=1):
         """按热度（收藏数）搜索插画 - 一周内"""
-        import asyncio
 
-        all_illusts = []
-        page_count = 0
-        next_params = None
-        pages_to_fetch = 5
+        async def fetch(**kwargs):
+            if self.pixiv_client_wrapper:
+                return await self.pixiv_client_wrapper.call_pixiv_api(
+                    self.pixiv_client.search_illust, **kwargs
+                )
+            return await asyncio.to_thread(self.pixiv_client.search_illust, **kwargs)
 
-        while page_count < pages_to_fetch:
-            try:
-                if page_count == 0:
-                    search_result = await asyncio.to_thread(
-                        self.pixiv_client.search_illust,
-                        tags,
-                        search_target="partial_match_for_tags",
-                        sort="date_desc",
-                        filter="for_ios",
-                        duration="within_last_week",  # 一周内
-                    )
-                else:
-                    if not next_params:
-                        break
-                    search_result = await asyncio.to_thread(
-                        self.pixiv_client.search_illust, **next_params
-                    )
-
-                if not search_result or not hasattr(search_result, "illusts"):
-                    break
-
-                if search_result.illusts:
-                    all_illusts.extend(search_result.illusts)
-                    page_count += 1
-                else:
-                    break
-
-                if hasattr(search_result, "next_url") and search_result.next_url:
-                    next_params = self.pixiv_client.parse_qs(search_result.next_url)
-                else:
-                    break
-
-                await asyncio.sleep(0.2)
-            except Exception as e:
-                logger.error(f"热度搜索第 {page_count + 1} 页出错: {e}")
-                break
-
-        if not all_illusts:
-            return f"未找到关于 '{query}' 的插画。"
-
-        sorted_illusts = sorted(
-            all_illusts, key=lambda x: getattr(x, "total_bookmarks", 0), reverse=True
+        sorted_illusts = await search_popular_illusts(
+            fetch,
+            tags,
+            duration="within_last_week",
+            pages=5,
+            parse_next_url=self.pixiv_client.parse_qs,
+            page_delay=0.2,
         )
+        if not sorted_illusts:
+            return f"未找到关于 '{query}' 的插画。"
 
         event = self._get_event(context)
         if event:
@@ -302,7 +267,6 @@ class PixivNovelSearchTool(FunctionTool[AstrAgentContext]):
             return f"搜索失败: {str(e)}"
 
     async def _search_novel(self, tags, query, context):
-        import asyncio
 
         # ID 检查
         if query.isdigit():
@@ -346,8 +310,6 @@ class PixivNovelSearchTool(FunctionTool[AstrAgentContext]):
             return f"API调用错误: {str(e)}"
 
     async def _send_novel_result(self, event, items, query, tags):
-        import asyncio
-
         if not items:
             return "未找到小说。"
 
@@ -368,7 +330,7 @@ class PixivNovelSearchTool(FunctionTool[AstrAgentContext]):
 
             try:
                 pdf_bytes = await asyncio.to_thread(
-                    self._create_pdf_from_text, novel_title, novel_text
+                    create_pdf_from_text, novel_title, novel_text
                 )
             except FileNotFoundError:
                 return "无法生成PDF：字体文件丢失。"
@@ -380,7 +342,7 @@ class PixivNovelSearchTool(FunctionTool[AstrAgentContext]):
             final_pdf_bytes = pdf_bytes
             password_notice = ""
             try:
-                from PyPDF2 import PdfReader, PdfWriter
+                from pypdf import PdfReader, PdfWriter
 
                 reader = PdfReader(io.BytesIO(pdf_bytes))
                 writer = PdfWriter()
@@ -398,25 +360,11 @@ class PixivNovelSearchTool(FunctionTool[AstrAgentContext]):
             safe_title = generate_safe_filename(novel_title, "novel")
             file_name = f"{safe_title}_{novel_id}.pdf"
 
-            file_sent = False
-            if event.get_platform_name() == "aiocqhttp" and event.get_group_id():
-                try:
-                    from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
-                        AiocqhttpMessageEvent,
-                    )
-
-                    if isinstance(event, AiocqhttpMessageEvent):
-                        client_bot = event.bot
-                        group_id = event.get_group_id()
-                        file_base64 = base64.b64encode(final_pdf_bytes).decode("utf-8")
-                        await client_bot.upload_group_file(
-                            group_id=group_id,
-                            file=f"base64://{file_base64}",
-                            name=file_name,
-                        )
-                        file_sent = True
-                except Exception as e:
-                    logger.error(f"群文件上传失败: {e}")
+            try:
+                file_sent = await send_bytes_as_file(event, final_pdf_bytes, file_name)
+            except Exception as send_error:
+                logger.error(f"发送小说文件失败: {send_error}")
+                file_sent = False
 
             author = (
                 getattr(selected_item.user, "name", "未知作者")
@@ -432,21 +380,6 @@ class PixivNovelSearchTool(FunctionTool[AstrAgentContext]):
         except Exception as e:
             logger.error(f"处理小说失败: {e}")
             return f"处理小说失败: {str(e)}"
-
-    def _create_pdf_from_text(self, title: str, text: str) -> bytes:
-        font_path = Path(__file__).parent.parent / "data" / "SmileySans-Oblique.ttf"
-        if not font_path.exists():
-            raise FileNotFoundError(f"字体文件不存在: {font_path}")
-
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.add_font("SmileySans", "", str(font_path), uni=True)
-        pdf.set_font("SmileySans", size=20)
-        pdf.multi_cell(0, 10, title, align="C")
-        pdf.ln(10)
-        pdf.set_font_size(12)
-        pdf.multi_cell(0, 10, text)
-        return pdf.output(dest="S")
 
     def _get_event(self, context):
         try:

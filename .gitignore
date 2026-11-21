@@ -6,3 +6,5 @@ data/cmd_config.json
 .ace-tool/
 .vscode
 .venv
+.ruff_cache/
+artifacts/

@@ -29,7 +29,9 @@ def validate_dir_name(name: str) -> str:
     """校验 --dir 目录名，拒绝路径穿越。"""
     name = name.strip()
     if not name or not DIR_NAME_RE.match(name) or ".." in name:
-        raise ValueError(f"目录名无效: {name!r}（仅允许字母/数字/中文/_/-，不超过 64 字符）")
+        raise ValueError(
+            f"目录名无效: {name!r}（仅允许字母/数字/中文/_/-，不超过 64 字符）"
+        )
     return name
 
 
@@ -60,7 +62,9 @@ class DownloadedStore:
             if isinstance(ids, list):
                 self._downloaded = [str(x) for x in ids]
         except (OSError, json.JSONDecodeError) as exc:
-            logger.warning(f"Pixiv 插件：downloaded.json 读取失败，按空记录处理 - {exc}")
+            logger.warning(
+                f"Pixiv 插件：downloaded.json 读取失败，按空记录处理 - {exc}"
+            )
 
     def contains(self, post_id: str) -> bool:
         return post_id in set(self._downloaded)
@@ -77,7 +81,9 @@ class DownloadedStore:
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         }
         tmp = self.path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         tmp.replace(self.path)  # 原子替换
 
 
@@ -95,7 +101,9 @@ class DownloadProgress:
     bytes_downloaded: int = 0
     current_post: str = ""
     speed_bps: float = 0.0  # 当前下载速度（滑动窗口）
-    active_files: dict[str, tuple[int, int]] = field(default_factory=dict)  # 文件名 → (已下载, 总大小)
+    active_files: dict[str, tuple[int, int]] = field(
+        default_factory=dict
+    )  # 文件名 → (已下载, 总大小)
     errors: list[str] = field(default_factory=list)
     started_at: float = 0.0
     message: str = ""
@@ -155,6 +163,7 @@ class FanboxDownloadManager:
         self._concurrency = concurrency
         self._prefetch_queue = prefetch_queue
         self._speed_window_seconds = speed_window
+
     @property
     def running(self) -> bool:
         return self._task is not None and not self._task.done()
@@ -189,7 +198,9 @@ class FanboxDownloadManager:
             started_at=time.time(),
         )
         self._task = asyncio.create_task(
-            self._run(client, creator_id, dir_name, limit, since, dl_type, force, on_done)
+            self._run(
+                client, creator_id, dir_name, limit, since, dl_type, force, on_done
+            )
         )
         return None
 
@@ -243,7 +254,9 @@ class FanboxDownloadManager:
                 f"Pixiv 插件：Fanbox 下载任务开始 - creator={creator_id} 待下载 {p.planned} 篇"
             )
 
-            consecutive_auth_errors = 0  # 连续 403 计数，区分单帖无权限与 Cookie 整体失效
+            consecutive_auth_errors = (
+                0  # 连续 403 计数，区分单帖无权限与 Cookie 整体失效
+            )
             detail_queue: asyncio.Queue = asyncio.Queue(maxsize=self._prefetch_queue)
             prefetch_task = asyncio.create_task(
                 self._prefetch_details(client, targets, detail_queue)
@@ -270,7 +283,9 @@ class FanboxDownloadManager:
                         elif dl_type == "file":
                             assets = [a for a in assets if isinstance(a, FanboxFile)]
 
-                        post_dir = posts_root / f"{post.id}_{sanitize_filename(post.title)}"
+                        post_dir = (
+                            posts_root / f"{post.id}_{sanitize_filename(post.title)}"
+                        )
                         post_dir.mkdir(parents=True, exist_ok=True)
                         self._write_content_md(post_dir, post, creator_id)
 
@@ -292,7 +307,9 @@ class FanboxDownloadManager:
                                 f"{len(failures)}/{len(assets)} 个文件失败: {failures[0]}"
                             )
 
-                        p.bytes_downloaded += sum(r for r in results if isinstance(r, int))
+                        p.bytes_downloaded += sum(
+                            r for r in results if isinstance(r, int)
+                        )
                         store.add(post.id)  # 每帖全部成功才记录，支持断点续跑
                         p.succeeded += 1
                     except asyncio.CancelledError:
@@ -302,7 +319,9 @@ class FanboxDownloadManager:
                         if isinstance(exc, CookieInvalidError):
                             p.skipped_restricted += 1
                             consecutive_auth_errors += 1
-                            p.errors.append(f"{summary.id}: 无访问权限（未订阅方案或缺少 cf_clearance）")
+                            p.errors.append(
+                                f"{summary.id}: 无访问权限（未订阅方案或缺少 cf_clearance）"
+                            )
                             if consecutive_auth_errors >= 5:
                                 p.message = str(exc)
                                 break
@@ -434,15 +453,15 @@ class FanboxDownloadManager:
         text = post.body_text()
         if text:
             lines.append(text)
-        (post_dir / "content.md").write_text(
-            "\n".join(lines), encoding="utf-8"
-        )
+        (post_dir / "content.md").write_text("\n".join(lines), encoding="utf-8")
 
     def _build_summary(self) -> str:
         p = self.progress
-        state_text = {"done": "✅ 完成", "stopped": "⏹ 已停止", "error": "❌ 异常终止"}.get(
-            p.state, p.state
-        )
+        state_text = {
+            "done": "✅ 完成",
+            "stopped": "⏹ 已停止",
+            "error": "❌ 异常终止",
+        }.get(p.state, p.state)
         lines = [
             f"# Fanbox 批量下载{state_text}：{p.creator_id}",
             "",

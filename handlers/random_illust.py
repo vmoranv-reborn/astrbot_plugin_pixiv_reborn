@@ -1,10 +1,10 @@
 from astrbot.api.event import AstrMessageEvent
 
-from ..utils.tag import validate_and_process_tags
+from ..domain.tag import validate_and_process_tags
 
-from ..utils.random_search import RandomSearchService
+from ..services.random_search import RandomSearchService
 
-from ..utils.database import (
+from ..infra.database import (
     add_random_tag,
     remove_random_tag,
     get_random_tags,

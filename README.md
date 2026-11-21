@@ -1,10 +1,10 @@
 # AstrBot Pixiv 搜索插件
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/vmoranv-reborn/astrbot_plugin_pixiv_search)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/vmoranv-reborn/astrbot_plugin_pixiv_reborn)
 [![文档](https://img.shields.io/badge/AstrBot-%E6%96%87%E6%A1%A3-blue)](https://astrbot.app)
 [![aiohttp](https://img.shields.io/pypi/v/aiohttp.svg)](https://pypi.org/project/aiohttp/)
 
-![:@astrbot_plugin_pixiv_search](https://count.getloli.com/get/@astrbot_plugin_pixiv_search?theme=booru-lewd)
+![:@astrbot_plugin_pixiv_reborn](https://count.getloli.com/get/@astrbot_plugin_pixiv_reborn?theme=booru-lewd)
 
 这是一个为 [AstrBot](https://astrbot.app) 开发的 Pixiv 搜索插件，让你可以在聊天中轻松搜索和获取 Pixiv 插画作品。
 
@@ -27,7 +27,7 @@
 - `/pixiv_and <标签>` - 与搜索(同时包含所有标签)
 - `/pixiv_user_search <用户名>` - 搜索用户
 - `/pixiv_novel <标签>` - 搜索小说
-- `/pixiv_novel download <小说ID>` - 下载小说为 pdf 文件并用文件md5值进行加密
+- `/pixiv_novel_download <小说ID>` - 下载小说为 pdf 文件并用文件md5值进行加密
 
 ### 随机搜索功能
 - `/pixiv_random_add <标签>` - 添加随机搜索标签
@@ -103,7 +103,7 @@
 ### 前置条件
 
 - Python >= 3.10
-- 已部署的 AstrBot 实例 (v3.x+)
+- 已部署的 AstrBot 实例 (v4.x+，已在 4.29.1 验证)
 - 有效的 Pixiv 账号和 `refresh_token`
 
 ### 配置插件
@@ -158,7 +158,7 @@
 /pixiv 茉莉安,-ntr
 
 # 下载小说
-/pixiv_novel download 12345678
+/pixiv_novel_download 12345678
 
 # 高级搜索  
 /pixiv_deepsearch 原神,风景
@@ -269,6 +269,9 @@
 | `refresh_token_interval_minutes` | 自动刷新 Refresh Token 的间隔时间（分钟） | 180 |
 | `subscription_enabled` | 是否启用订阅功能 | true |
 | `subscription_force_forward` | 订阅消息是否强制使用合并转发（即便仅一条） | true |
+| `subscription_max_pages` | 订阅推送单作品最大页数（0 不限制） | 0 |
+
+> 订阅多图作品默认发送全部页面；是否合并转发沿用 `subscription_force_forward`，不提供“仅首图”开关。
 | `subscription_check_interval_minutes` | 订阅更新检查间隔（分钟） | 30 |
 | `proxy` | 网络代理地址，如 `http://127.0.0.1:7890` | 留空 |
 | `image_proxy_host` | 图片反代服务器地址 | i.pixiv.re |
@@ -297,13 +300,13 @@
 
 - [AstrBot 官方文档](https://astrbot.app/)
 - [插件开发指南](https://astrbot.app/develop/plugin.html)
-- [问题反馈](https://github.com/vmoranv-reborn/astrbot_plugin_pixiv_search/issues)
+- [问题反馈](https://github.com/vmoranv-reborn/astrbot_plugin_pixiv_reborn/issues)
 
 ## ⭐ 项目统计
 
 <div align="center">
 
-[![Star History Chart](https://api.star-history.com/svg?repos=vmoranv-reborn/astrbot_plugin_pixiv_search&type=Date)](https://star-history.com/#vmoranv-reborn/astrbot_plugin_pixiv_search&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=vmoranv-reborn/astrbot_plugin_pixiv_reborn&type=Date)](https://star-history.com/#vmoranv-reborn/astrbot_plugin_pixiv_reborn&Date)
 
 ![Analytics](https://repobeats.axiom.co/api/embed/9e6727cd94536119069eebccfe45b505ac499470.svg "Repobeats analytics image")
 

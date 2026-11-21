@@ -1,6 +1,6 @@
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api import logger
-from ..utils.help import get_help_message
+from ..infra.help import get_help_message
 
 
 class MiscHandler:
