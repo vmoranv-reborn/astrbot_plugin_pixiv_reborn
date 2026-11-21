@@ -277,6 +277,14 @@
         "hint": "设置为 true 时，订阅更新始终以合并转发消息发送，用于避免图片直接出现在群聊。",
         "default": true
     },
+    "subscription_max_pages": {
+        "description": "订阅推送单作品最大页数",
+        "type": "int",
+        "hint": "0 表示不限制；超过上限时只发送前 N 页并在消息中提示。",
+        "default": 0,
+        "min": 0,
+        "max": 200
+    },
     "subscription_check_interval_minutes": {
         "description": "订阅更新检查间隔（分钟）",
         "type": "int",
