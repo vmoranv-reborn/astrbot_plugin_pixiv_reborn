@@ -1,21 +1,21 @@
-import asyncio
 from typing import Dict, Any
-import aiohttp
 
 from astrbot.api.event import AstrMessageEvent, filter
-from astrbot.api.star import Context, Star, StarTools
+from astrbot.api.star import Context, Star
 from astrbot.api import logger
-from astrbot.api.all import command 
+from astrbot.api.all import command
 
-from .utils.database import initialize_database
-from .utils.subscription import SubscriptionService
-from .utils.pixiv_utils import init_pixiv_utils
-from .utils.help import init_help_manager, get_help_message
-from .utils.llm_tool import create_pixiv_llm_tools
-from .utils.tag import set_filter_config_source
+from .infra.database import initialize_database
+from .services.subscription import SubscriptionService
+from .media.pixiv_utils import init_pixiv_utils
+from .infra.help import init_help_manager, get_help_message
+from .infra.paths import get_plugin_data_dir
+from .services.llm_tool import create_pixiv_llm_tools
+from .domain.tag import set_filter_config_source
 
-from .utils.config import PixivConfig, PixivConfigManager
+from .infra.config import PixivConfig, PixivConfigManager
 
+from . import __version__
 from .core.client import PixivClientWrapper
 from .handlers.illust import IllustHandler
 from .handlers.user import UserHandler
@@ -38,7 +38,7 @@ class PixivSearchPlugin(Star):
 
     def __init__(self, context: Context, config: Dict[str, Any]):
         """初始化 Pixiv 插件"""
-        super().__init__(context)
+        super().__init__(context, config)
         self.config = config
 
         # 1.初始化配置管理器
@@ -63,13 +63,15 @@ class PixivSearchPlugin(Star):
         self.misc_handler = MiscHandler(self.client_wrapper, self.pixiv_config)
         self.fanbox_handler = FanboxHandler(self.pixiv_config, context=context)
 
-        self._refresh_task: asyncio.Task = None
-        self._http_session = None
         self.sub_service = None
         self.random_search_service = None
 
-        # 使用 StarTools 获取标准数据目录
-        data_dir = StarTools.get_data_dir("pixiv_search")
+    async def initialize(self) -> None:
+        """AstrBot 生命周期：插件加载完成后执行异步初始化。"""
+        await super().initialize()
+
+        # 使用插件统一数据目录（保留历史目录名以兼容已有数据）
+        data_dir = get_plugin_data_dir()
         self.temp_dir = data_dir / "temp"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         self.fanbox_handler.temp_dir = self.temp_dir
@@ -79,7 +81,7 @@ class PixivSearchPlugin(Star):
         set_filter_config_source(self.pixiv_config)
 
         # 初始化帮助消息管理器
-        init_help_manager(data_dir)
+        init_help_manager()
 
         # 初始化数据库
         initialize_database()
@@ -88,12 +90,12 @@ class PixivSearchPlugin(Star):
         logger.info(f"Pixiv 插件配置加载：{self.pixiv_config.get_config_info()}")
 
         # 启动后台刷新任务
-        self._refresh_task = self.client_wrapper.start_refresh_task()
+        self.client_wrapper.start_refresh_task()
 
         # 启动订阅服务
         if self.pixiv_config.subscription_enabled:
             self.sub_service = SubscriptionService(
-                self.client_wrapper, self.pixiv_config, context
+                self.client_wrapper, self.pixiv_config, self.context
             )
             self.sub_service.start()
         else:
@@ -125,11 +127,11 @@ class PixivSearchPlugin(Star):
     def info() -> Dict[str, Any]:
         """返回插件元数据"""
         return {
-            "name": "pixiv_search",
-            "author": "vmoranv",
+            "name": "astrbot_plugin_pixiv_reborn",
+            "author": "vmoranv-reborn",
             "description": "Pixiv 图片搜索",
-            "version": "1.7.5",
-            "homepage": "https://github.com/vmoranv-reborn/astrbot_plugin_pixiv_search",
+            "version": __version__,
+            "homepage": "https://github.com/vmoranv-reborn/astrbot_plugin_pixiv_reborn",
         }
 
     # --------插画类
@@ -170,7 +172,7 @@ class PixivSearchPlugin(Star):
         """处理url消息事件,判断是否为p站插画链接,并发送图片"""
         async for result in self.illust_handler.pixiv_msg_url(event, event.message_str):
             yield result
-            
+
     @command("pixiv_specific")
     async def pixiv_specific(self, event: AstrMessageEvent, illust_id: str = ""):
         """根据作品 ID 获取特定作品详情"""
@@ -494,68 +496,5 @@ class PixivSearchPlugin(Star):
             await self.random_search_service.stop()
         # 取消后台刷新任务
         await self.client_wrapper.stop_refresh_task()
-        self._refresh_task = self.client_wrapper._refresh_task
 
         logger.info("Pixiv 搜索插件已停用。")
-        # 关闭HTTP会话
-        if self._http_session and not self._http_session.closed:
-            await self._http_session.close()
-
-    async def _get_http_session(self):
-        if self._http_session is None or self._http_session.closed:
-            self._http_session = aiohttp.ClientSession()
-        return self._http_session
-
-    async def pixiv_llm_search(self, query: str, search_type: str = "illust") -> str:
-        """
-        使用LLM工具进行智能搜索
-
-        Args:
-            query: 搜索查询，可以是自然语言描述
-            search_type: 搜索类型，如 'illust', 'novel', 'user' 等
-
-        Returns:
-            str: 搜索结果
-        """
-        try:
-            # 验证是否已认证
-            if not await self.client_wrapper.authenticate():
-                return self.pixiv_config.get_auth_error_message()
-
-            logger.info(
-                f"Pixiv 插件：使用LLM工具搜索 - 查询: {query}, 类型: {search_type}"
-            )
-
-            # 使用PixivSearchTool进行搜索
-            normalized_type = (search_type or "illust").strip().lower()
-            target_tool_name = (
-                "pixiv_search_novel"
-                if normalized_type in {"novel", "小说"}
-                else "pixiv_search_illust"
-            )
-
-            search_tool = None
-            for tool in self.llm_tools:
-                if hasattr(tool, "name") and tool.name == target_tool_name:
-                    search_tool = tool
-                    break
-
-            if not search_tool:
-                return "LLM搜索工具未初始化"
-
-            # 创建模拟的上下文
-            from astrbot.core.agent.run_context import ContextWrapper
-            from astrbot.core.astr_agent_context import AstrAgentContext
-
-            mock_context = ContextWrapper(AstrAgentContext())
-
-            # 调用搜索工具
-            result = await search_tool.call(mock_context, query=query)
-
-            logger.info("Pixiv 插件：LLM搜索完成")
-            return result
-
-        except Exception as e:
-            error_msg = f"LLM搜索时发生错误: {str(e)}"
-            logger.error(error_msg)
-            return error_msg
